@@ -457,68 +457,25 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 
 ---
 
-## 13. Review: Questions, Clarifications & Simplification Opportunities
+## 13. Review: 10 najważniejszych problemów
 
-*Added by doc review (2026-11-24). Resolve each item (answer it in the relevant section above, then remove it from here) before the agents that depend on it start work.*
+*Review dokumentacji (2026-11-24). Rozstrzygnij każdy punkt (wpisz decyzję do odpowiedniej sekcji powyżej i usuń go stąd), zanim zaczną pracę agenci, którzy od niego zależą. Punkty 1–5 blokują start.*
 
-### 13.1 Contract gaps (highest priority — agents coordinate only through this file)
+1. **Brak kształtów odpowiedzi API (§8).** Frontend i backend zbudują różne kontrakty, jeśli JSON nie zostanie zapisany. Trzeba podać pola dla `GET /api/portfolio` (cash, total_value, positions: ticker, quantity, avg_cost, current_price, unrealized_pnl, pnl_pct), `POST /api/portfolio/trade` (sukces i błąd), `GET /api/portfolio/history`, `GET /api/watchlist` i `POST /api/chat`. Do tego jeden format błędu (np. `{"detail": "..."}`) i stałe kody statusu (400/422 walidacja, 404 nieznany ticker, 409 duplikat na watchliście). Najlepiej w osobnym pliku `planning/API.md` z przykładami JSON.
+2. **Brak formatu zdarzenia SSE (§6).** Jedno zdarzenie na ticker czy jedno zbiorcze na tick? Nazwane (`event: price`) czy domyślne `message`? Dokładne nazwy pól i format timestampu (ISO czy epoch ms)? Rekomendacja: jedno zbiorcze zdarzenie na tick ze wszystkimi tickerami, a zaraz po połączeniu wysłanie pełnego stanu cache.
+3. **Które tickery mają ceny?** §6 mówi „tickery z watchlisty”, ale użytkownik może trzymać pozycję w tickerze usuniętym z watchlisty. Bez ceny psują się P&L i wartość portfela. Rekomendacja: źródło danych śledzi **sumę watchlisty i otwartych pozycji**; usunięcie z watchlisty jest dozwolone. Trzeba też określić, jak zadanie rynkowe dowiaduje się o zmianach (push: `source.add_ticker()` czy pull z DB co cykl).
+4. **Zachowanie mock LLM nie jest opisane.** Testy E2E od niego zależą („transakcja pojawia się inline”). Przykład: wiadomość zawierająca „buy” → kupno 1 akcji AAPL; „add X” → dodanie do watchlisty; wszystko inne → stała odpowiedź tekstowa. Bez tego agent testów i agent backendu się rozjadą.
+5. **Schemat i wykonanie akcji LLM (§9).** (a) W trybie strict structured outputs wszystkie pola muszą być `required`, więc `trades` i `watchlist_changes` powinny być wymaganymi tablicami (pustymi, gdy nieużywane). (b) Kolejność: najpierw zmiany watchlisty, potem transakcje. (c) Każda akcja wykonywana niezależnie (błąd jednej nie zatrzymuje reszty). (d) Odpowiedź `/api/chat` i kolumna `chat_messages.actions` zawierają wynik każdej akcji (wykonana / odrzucona z powodem), a nie tylko to, o co prosił LLM.
+6. **Obsługa błędów LLM.** Co zwraca `/api/chat` przy timeoucie, błędzie sieci, niepoprawnym JSON albo braku `OPENROUTER_API_KEY`? Czy wiadomość użytkownika jest zapisywana? Rekomendacja: aplikacja startuje bez klucza, a czat zwraca przyjazny komunikat błędu. Trzeba też ustalić okno historii wysyłanej do LLM (np. ostatnie 20 wiadomości).
+7. **Brak endpointu historii czatu.** Panel czatu pokazuje „przewijaną historię”, a wiadomości są w `chat_messages`, ale §8 nie ma `GET /api/chat/history`. Po odświeżeniu strony panel jest pusty. Dodaj endpoint albo napisz wprost, że historia nie jest przywracana.
+8. **Sprzeczności w specyfikacji.** (a) §11 używa named volume (`finally-data:/app/db`), ale twierdzi, że katalog `db/` projektu jest mapowany na `/app/db`. Wybierz jedno. (b) §5 mówi, że backend czyta `.env` z katalogu projektu, ale w kontenerze go nie ma. Rekomendacja: `--env-file .env`, backend czyta tylko `os.environ`. (c) §4 mówi „lazy init przy pierwszym żądaniu”, §7 „przy starcie (lub pierwszym żądaniu)”. Rekomendacja: raz przy starcie (FastAPI lifespan), z zapisem pierwszego snapshotu portfela, żeby wykres P&L nie był pusty. (d) §10: Recharts renderuje SVG, nie canvas, a żadna z bibliotek nie pokrywa treemapy. Rekomendacja: Lightweight Charts dla wykresów liniowych i treemapa z divów (łatwa do testowania w E2E).
+9. **„Daily change %” nie ma punktu odniesienia.** Symulator nie ma otwarcia sesji ani poprzedniego zamknięcia, a Massive ma. Zdefiniuj, co eksponuje wspólny interfejs (np. zmiana od ceny startowej sesji serwera). Doprecyzuj też, że „% change” w tabeli pozycji to niezrealizowany P&L względem `avg_cost`.
+10. **Walidacja transakcji i tickerów.** Tickery normalizowane (wielkie litery, trim) na każdej ścieżce. Co z nieznanym tickerem (`ZZZZ`): regex formatu, odrzucenie? Transakcja bez ceny w cache → błąd. `quantity > 0`, zaokrąglanie (gotówka do centów, ilość do 4 miejsc). Sprzedaż całej pozycji usuwa wiersz, a `avg_cost` nie zmienia się przy częściowej sprzedaży. Odczyt i zapis gotówki/pozycji w jednej transakcji SQLite, żeby równoczesny zakup ręczny i przez LLM nie przeszedł dwa razy.
 
-1. **API response shapes are undefined.** Unless the JSON for each endpoint is written down, the frontend and backend agents will build against different assumptions. Needed at minimum:
-   - `GET /api/portfolio`: field names for cash, total value, and positions (ticker, quantity, avg_cost, current_price, unrealized_pnl, pnl_pct).
-   - `POST /api/portfolio/trade`: the success body (executed price, new cash, updated position?) and the error body.
-   - `GET /api/portfolio/history`: an array of `{recorded_at, total_value}`? Is there a time-range limit?
-   - `GET /api/watchlist`: an array of `{ticker, price, previous_price, change_pct}`?
-   - `POST /api/chat`: the response must include a result for each action (executed, or failed with a reason), not just the actions the LLM asked for, so the UI can show confirmations and errors inline.
-   - One error format (e.g. `{"detail": "Insufficient cash"}` with 400) and fixed status codes (400 validation, 404 unknown ticker, 409 duplicate watchlist entry?).
-2. **The SSE event format is undefined.** One event per ticker, or one batched event per tick? A named event (`event: price`) or the default `message`? Exact field names (`ticker`, `price`, `previous_price`, `timestamp`, `direction`)? Timestamp as an ISO string or epoch ms? Recommendation: one batched event per tick containing all tickers. That means fewer messages and a simpler client.
-3. **"Daily change %" has no reference point.** The simulator has no market open or previous close. Options: change since the first (seed) price of this server session, or change since the previous tick. Massive provides a real previous close, so the two sources will behave differently. Define which field the shared interface exposes.
-4. **"% change" in the positions table** presumably means unrealized P&L % relative to avg cost. Please state it.
+### Uproszczenia
 
-### 13.2 Behavioral questions
-
-5. **Which tickers get prices?** §6 says "all tickers known to the system ... equivalent to the user's watchlist". But a user can hold a position in a ticker they later remove from the watchlist, and without a price the P&L and total value break. Proposal: the price source tracks the **union of watchlist and held positions**.
-6. **Can a user remove a watched ticker that has an open position?** Recommended: yes, but its price keeps being tracked (item 5).
-7. **What happens when an unknown or invalid ticker is added?** The simulator can price anything, so what seed price and volatility does `ZZZZ` get? With Massive, an invalid symbol returns nothing. Should the backend validate symbols (a format regex? a Massive lookup?) and reject them with 404/400?
-8. **How does the market data task learn about watchlist changes?** Push (the API calls `source.add_ticker()`) or pull (the task re-reads the DB each cycle)? This belongs in the abstract interface.
-9. **Trading a ticker with no cached price yet** (just added, Massive hasn't polled it): reject with an error? Recommended: yes.
-10. **Fractional share precision.** Is there a minimum quantity? How are quantity and cash rounded, given that REAL floats accumulate error? Recommendation: on every write, round cash to cents and quantity to e.g. 4 decimals.
-11. **Selling a full position:** delete the `positions` row, or keep it with quantity 0? Recommended: delete. Also confirm that avg cost stays the same on partial sells (the standard average-cost method).
-12. **Order of LLM action execution.** Watchlist changes first, then trades, so "add PYPL and buy 5" can work? Is each action executed on its own (one failure doesn't stop the rest), or is it all-or-nothing?
-13. **Chat history window.** How many earlier messages are sent to the LLM (the last 20?)? Unbounded history will eventually overflow the context and slow responses.
-14. **LLM failure handling.** For a timeout, network error, malformed JSON or missing `OPENROUTER_API_KEY`: what does `/api/chat` return, and is the user's message still stored? Should the app start without the key? Recommended: yes, with chat returning a friendly error.
-15. **Mock LLM behavior must be specified**, since the E2E tests depend on it ("trade execution appears inline"). For example: a message containing "buy" returns a buy of 1 share of AAPL; anything else returns a fixed text reply. Without a spec, the test agent and the backend agent will diverge.
-16. **Structured output schema vs. strict mode.** Strict JSON-schema structured outputs usually require every property to be `required`. Recommend making `trades` and `watchlist_changes` required arrays (empty when unused) instead of optional. Parsing gets simpler too.
-17. **Header total value "updating live":** is it computed on the frontend from SSE prices and the last-fetched positions, or re-fetched from the backend? Recommended: compute it on the frontend, and re-fetch the portfolio after trades and chat actions.
-18. **Main chart history.** Like the sparklines, the main chart only has data since page load, because the backend keeps no price history. Confirm this is acceptable and that the main chart and sparklines share one in-memory buffer. Cap that buffer (e.g. the last 1,000 points per ticker).
-19. **Price flash cadence.** With updates every ~500 ms and a ~500 ms fade, every cell will flash all the time. Consider a shorter fade (~300 ms), or flash only when the displayed (rounded) price changes.
-
-### 13.3 Inconsistencies
-
-20. **Named volume vs. bind mount.** §11 uses a named volume (`-v finally-data:/app/db`) but also says "The `db/` directory in the project root maps to `/app/db`". These are different setups: with a named volume, the project-root `db/` stays empty. Pick one. A named volume is simpler and works the same on every platform; a bind mount lets users open the DB file directly.
-21. **Loading `.env`.** §5 says the backend "reads `.env` from the project root", but there is no project-root `.env` inside the container unless it is mounted. Recommend: pass it with `--env-file .env` in Docker, have the backend read only `os.environ`, and optionally use `python-dotenv` for local dev.
-22. **`user_id` on every table:** `users_profile` doesn't have one (it uses `id`). That's fine, but the sentence "All tables include a `user_id` column" should read "all tables except `users_profile`".
-23. **Charting library.** "Canvas-based charting library preferred (Lightweight Charts or Recharts)", but Recharts renders SVG, not canvas. And neither Lightweight Charts nor a line-chart library covers the treemap. Recommend: Lightweight Charts for the price and P&L lines, plus a small treemap (Recharts `Treemap`, or a hand-built squarified layout of divs). State the choice so two agents don't pick differently.
-24. **When the DB is initialized:** §7 says "on startup (or first request)" while §4 says it "lazily initializes the database on first request". Pick one.
-
-### 13.4 Missing details
-
-25. **Local development workflow.** In a static export, Next.js `rewrites` don't apply at runtime. How does `npm run dev` on :3000 reach the API on :8000: dev-only rewrites in `next.config`, or CORS enabled in dev? Specify it so the frontend agent doesn't hard-code URLs.
-26. **Static file serving details.** FastAPI must register the API routes first and mount `StaticFiles(directory="static", html=True)` last. The Next.js export needs `trailingSlash` or `.html` handling for any route other than root (probably just `/`).
-27. **DB path configuration.** Suggest a `DB_PATH` env var (default `db/finally.db` relative to the repo root locally, `/app/db/finally.db` in the container) so tests can use a temporary DB.
-28. **Massive API endpoint.** Which endpoint returns a snapshot of several tickers in one call? That is needed to stay within 5 calls/min. Name it, along with an env var for the poll interval (e.g. `MASSIVE_POLL_SECONDS`, default 15).
-29. **Health check response:** e.g. `{"status": "ok"}`. Does the Dockerfile also include a `HEALTHCHECK`?
-30. **Snapshot retention and history size.** One snapshot every 30 s is about 2,900 rows a day. That's fine for SQLite, but should `/api/portfolio/history` downsample or limit its range (e.g. the last 24 h)?
-31. **Simulator seed prices and parameters:** list them for all 10 default tickers, or explicitly hand the decision to the Market Data agent.
-
-### 13.5 Simplification opportunities
-
-- **Composite primary keys.** `watchlist` and `positions` already have `UNIQUE(user_id, ticker)`. Making that the primary key removes the UUID `id` column and makes upserts simpler (`INSERT ... ON CONFLICT`).
-- **Initialize the DB once at app startup** (FastAPI lifespan) instead of lazily on requests. That avoids locking and "is it initialized?" checks on every request.
-- **Batch SSE events**: one event per tick with all tickers keeps both client and server simpler.
-- **Required empty arrays in the LLM schema** (item 16) remove the null-handling branches.
-- **Make the Massive API integration a stretch goal.** The simulator covers every demo and test scenario, while Massive adds an HTTP client, rate-limit handling, response parsing and tests. Keep the abstract interface so it can be added later.
-- **Drop the "SSE resilience" E2E test**, or replace it with a frontend unit test of the connection-status indicator. Killing and restarting the server inside a Playwright run is fragile, and EventSource reconnection is built into the browser.
-- **The heatmap "correct colors" E2E check** is hard to assert on a canvas. If the treemap is built from DOM elements (divs), it becomes easy to test. That's another argument for a div-based treemap.
-- **Scripts.** The four start/stop scripts overlap with the optional `docker-compose.yml`. A `docker-compose.yml` on its own (`docker compose up -d` / `down`) works the same on macOS, Linux and Windows, so the scripts could become one-line wrappers or be dropped.
-- **Next.js vs. Vite.** The app is a single page with no routing, SSR or server features. A Vite + React + TypeScript build would be lighter and produce a simpler static bundle. This only applies if the course doesn't require Next.js.
-- **Keep the frontend's portfolio math minimal.** The backend returns computed P&L. The frontend only recalculates live values from SSE prices for the header and table, using one shared helper.
+- **Złożone klucze główne** `(user_id, ticker)` w `watchlist` i `positions` zamiast UUID: prostsze upserty (`INSERT ... ON CONFLICT`).
+- **Massive API jako stretch goal.** Symulator pokrywa wszystkie scenariusze demo i testów; interfejs abstrakcyjny zostaje, żeby dodać Massive później.
+- **Usunąć test E2E „SSE resilience”** albo zastąpić go testem jednostkowym wskaźnika połączenia. Restart serwera w Playwright jest kruchy, a EventSource ma wbudowany retry.
+- **Skrypty start/stop** mogą być jednolinijkowymi wrapperami na `docker compose up -d` / `down`, które działa tak samo na każdym systemie.
+- **Node 20 jest po EOL** (kwiecień 2026). W Dockerfile użyj Node 22 LTS i `uv sync --frozen`.
