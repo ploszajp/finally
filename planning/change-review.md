@@ -1,67 +1,66 @@
-# Change Review — 2026-11-24
+# Change review — 2026-11-24
+
+*Scope: everything changed since commit `becaafe` (`git diff HEAD` plus untracked files). `planning/change-review.md` itself is excluded because it is this report.*
 
 ## Summary of changes
 
-Changes since commit `8e38a6f`:
+- **`.claude/settings.json` (modified).** The project-level `Stop` hook was removed. `"independent-reviewer@pepe-tools": true` was added to `enabledPlugins`.
+- **`.claude-plugin/marketplace.json` (new).** Defines a local marketplace `pepe-tools` with one plugin, `independent-reviewer`, at `./independent-reviewer`.
+- **`independent-reviewer/.claude-plugin/plugin.json` (new).** Plugin manifest.
+- **`independent-reviewer/hooks/hooks.json` (new).** The `Stop` hook from `settings.json`, moved over unchanged.
+- **`README.md` (modified).** The 3-line stub is now a full overview: features, stack table, quick start, env vars, project layout, docs and license links.
+- **`planning/review.md` (deleted).** The detailed plan review (about 33 numbered findings tagged [B]/[W]/[N]) is gone.
 
-- **`.claude/settings.json` (modified).** `enabledPlugins` is unchanged. A new `hooks.Stop` command hook (timeout 600 s) was added. When `IN_REVIEW_HOOK` is unset and `git status --porcelain` is non-empty, it runs a headless `claude -p "Use the change-reviewer subagent ..." --allowedTools "Read Grep Glob Bash Write Agent"` with `IN_REVIEW_HOOK=1`.
-- **`planning/change-review.md` (untracked).** This is the output of an earlier run of this same review. This run replaces it.
+Overall: the review hook moved from project settings into a repo-local plugin. That is a reasonable way to package it, but whether the hook still fires depends on the plugin loading, and the changes as written do not guarantee that (see H2, M1). Deleting `review.md` loses work that exists nowhere else.
 
-What I checked:
-- The JSON is well-formed (20 lines).
-- The command uses no permission-bypass flags.
-- The `IN_REVIEW_HOOK` guard stops recursion within a single stop. The child session's Stop hook inherits the variable, and the subagent fires `SubagentStop`, not `Stop`.
-- `planning/change-review.md` is not gitignored (`git check-ignore` returns 1). There is no `.claude/settings.local.json`.
-- `.claude/agents/change-reviewer.md:4` grants `tools: Read, Grep, Glob, Bash, Write`.
+---
 
-There are no conflicts with `planning/PLAN.md`. The change is tooling only and does not touch the product spec. It does not address any open item in §13.
+## High
 
-## Findings
+### H1. `planning/review.md` deleted; its findings exist nowhere else
+- **Where:** `planning/review.md` (deleted). Compare with `planning/PLAN.md:460-484` (§13).
+- **Problem:** `review.md` described itself as a *supplement* to PLAN §13 ("tych 10 punktów tu nie powtarzam"). It held about 33 separate findings, several marked **[B] (blocks agent start)**: single uvicorn worker / no `--reload`, event-loop blocking by sync `litellm.completion` and sync `sqlite3`, the price being available right after `add_ticker()`. It also covered SQLite WAL/`busy_timeout`/`DB_PATH`, price resets on restart, and seed prices for arbitrary tickers. A grep of `PLAN.md` for `workers`, `acompletion`, `WAL` and `DB_PATH` finds nothing, so none of these were moved into the spec. Once the file is gone, agents that use `planning/` as the shared contract cannot see these blocking decisions.
+- **Fix:** Restore the file (`git checkout HEAD -- planning/review.md`) until each item is resolved into PLAN.md. Alternatively, merge the [B]/[W] items into PLAN §13 (or the relevant sections) in the same change that deletes the file.
 
-### High
+### H2. `plugin.json` `author` is a string; the manifest schema expects an object
+- **Where:** `independent-reviewer/.claude-plugin/plugin.json:5`
+- **Problem:** `"author" : "FinAlly"`. The Claude Code plugin manifest defines `author` as an object (`{"name": ..., "email"?: ..., "url"?: ...}`), which is how `marketplace.json:14-16` already writes it. A manifest that fails validation can stop the plugin from loading. Because the `Stop` hook was removed from `settings.json`, that would quietly turn off the automatic change review. The author also differs from the marketplace entry ("FinAlly" vs "Pepe").
+- **Fix:** `"author": { "name": "Pepe" }` (match the marketplace). Then confirm the plugin loads with `claude plugin validate .` or `/plugin` and check that the hook appears under `/hooks`.
 
-**H1. The review keeps re-triggering itself.** `.claude/settings.json:13`
-Every run writes `planning/change-review.md`. That file is untracked and not ignored, so after the first run `git status --porcelain` is never empty again. Every later Stop of any session starts a new review of up to 10 minutes. That includes turns that only answered a question, and the stop right after a commit. Each run rewrites the file, so the loop never ends. This run was itself triggered because the earlier review file was present. Committing the file would not help: the next rewrite would make it a modified tracked file.
-Fix: add `planning/change-review.md` to `.gitignore`, or exclude it in the check:
-`[ -z "$(git status --porcelain -- . ':(exclude)planning/change-review.md')" ]`.
-Better still, skip the run if nothing changed since the last review. For example, hash `git diff HEAD` plus the list of untracked files into `.git/last-review-hash`, and compare before running.
+## Medium
 
-**H2. Unrestricted `Bash` and `Write` are pre-approved in a headless session that reads untrusted content.** `.claude/settings.json:13`, `.claude/agents/change-reviewer.md:4`
-`--allowedTools "... Bash Write ..."` approves any shell command and any file write without asking. The reviewer reads diffs and untracked files, which may come from other agents or from downloads. That opens the door to prompt injection. "Never write to any other file" is only an instruction in the agent prompt, and nothing enforces it.
-Fix: scope the rules, for example:
-`--allowedTools "Read Grep Glob Agent Bash(git status:*) Bash(git diff:*) Bash(git ls-files:*) Edit(/planning/change-review.md)"`
-Edit rules also govern `Write`. Narrow the agent's `tools:` to match.
+### M1. Marketplace `pepe-tools` is enabled but not registered in project settings
+- **Where:** `.claude/settings.json:6`
+- **Problem:** `enabledPlugins` refers to `independent-reviewer@pepe-tools`, but `settings.json` has no `extraKnownMarketplaces` entry for `pepe-tools`. The marketplace only resolves on a machine where someone ran `/plugin marketplace add ./` by hand, and that registration is stored in user-level state, not in the repo. Anyone else who clones the repo, including the agents or a CI run, gets an unknown-plugin warning and no review hook. Before this change the hook worked straight from the checked-in `settings.json`.
+- **Fix:** Register the marketplace in the project settings, for example `"extraKnownMarketplaces": { "pepe-tools": { "source": { "source": "directory", "path": "." } } }`. Or note the one-time `/plugin marketplace add ./` + `/plugin install independent-reviewer@pepe-tools` step in README.
 
-### Medium
+### M2. Plugin depends on a project-local subagent it does not ship
+- **Where:** `independent-reviewer/hooks/hooks.json:8`; `.claude/agents/change-reviewer.md`
+- **Problem:** The hook prompt says "Use the change-reviewer subagent", but that agent lives in `.claude/agents/`, not in the plugin (there is no `independent-reviewer/agents/`). The plugin is described as a reusable "independent review" tool, yet it fails in any other repo. Even here it only works because the project agent happens to exist. The hook also writes to `planning/change-review.md`, which is specific to this project.
+- **Fix:** Move (or copy) `change-reviewer.md` into `independent-reviewer/agents/` and refer to it as the plugin's agent. Or state in the plugin description that it requires a project-level `change-reviewer` agent.
 
-**M1. The main session blocks for up to 10 minutes at every Stop.** `.claude/settings.json:14`
-Stop hooks run synchronously. A large diff can exceed 600 s. The process is then killed and leaves the review file stale or half-written, with no signal to the user. With exit code 0, the hook's stdout is not shown to the main agent.
-Fix: run it detached in the background:
-`(IN_REVIEW_HOOK=1 nohup claude -p ... >/dev/null 2>&1 &)`.
-Alternatively, make it a slash command you trigger by hand. If it stays synchronous, bound it with `--max-turns`.
+### M3. README Quick Start points to files that do not exist yet
+- **Where:** `README.md:28-32`
+- **Problem:** `cp .env.example .env` and `./scripts/start_mac.sh` / `.\scripts\start_windows.ps1` both fail right now: neither `.env.example` nor `scripts/` exists. PLAN §4 does plan these files, but the README reads as if the project already works and gives no hint that it is a specification in progress.
+- **Fix:** Add a short status note ("Work in progress — see planning/PLAN.md; scripts and `.env.example` are not yet committed"), or create a placeholder `.env.example` with the three variables from PLAN §5.
 
-**M2. The hook is committed for the whole project.** `.claude/settings.json:7-19`
-The hook is in the shared `settings.json`. Every clone and every orchestrated agent session (PLAN.md §1) inherits it, so each one starts a paid review at every stop. Several can run in parallel and race on the same output file.
-Fix: move the hook to `.claude/settings.local.json`, or make it opt-in by adding `[ -n "$AUTO_REVIEW" ] || exit 0` at the start.
+## Low
 
-**M3. The command silently depends on a POSIX shell.** `.claude/settings.json:13`
-`[ ]`, `$(...)` and `VAR=1 cmd` only work because Claude Code on Windows runs hooks through Git Bash. On a setup without Git Bash, every Stop fails with a syntax error.
-Fix: move the logic to `.claude/hooks/review.sh`, call it with `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/review.sh"`, and document that Git Bash is required.
+### L1. README settles points that PLAN §13 still lists as open
+- **Where:** `README.md:20` ("created on startup"), `README.md:38` (`OPENROUTER_API_KEY` "Yes (for chat)", which implies the app starts without it).
+- **Problem:** PLAN §4 says lazy init on first request, §7 says "on startup (or first request)", and §13 #8c only *recommends* startup. Likewise, starting without a key is only a recommendation in §13 #6. The README quietly picks one answer before the spec does.
+- **Fix:** Either write the decisions into PLAN.md (§7/§5) and remove the corresponding §13 items, or use neutral wording in README ("created automatically").
 
-### Low
+### L2. Redundant and placeholder metadata in the plugin files
+- **Where:** `.claude-plugin/marketplace.json:6,13`; `independent-reviewer/.claude-plugin/plugin.json:4`
+- **Problem:** `version` and `description` appear in both the marketplace entry and `plugin.json`, so they can drift apart (`plugin.json` takes precedence). `owner.email` is the placeholder `pepe@example.com`. `plugin.json` declares `"license": "MIT"`; check that this matches the repo `LICENSE`.
+- **Fix:** Keep `version` in `plugin.json` only. Remove the placeholder email or replace it with a real one. Make the license match `LICENSE`.
 
-**L1. The git check depends on the working directory.** `.claude/settings.json:13`
-If the session has `cd`'d into a subdirectory or outside the repo, `git status` checks the wrong tree or prints `fatal:` to stderr.
-Fix: use `git -C "$CLAUDE_PROJECT_DIR" status --porcelain 2>/dev/null`, and `cd "$CLAUDE_PROJECT_DIR"` before running `claude`.
+### L3. Formatting
+- **Where:** `.claude-plugin/marketplace.json:3-4,14-16` (Allman-style brace, trailing spaces, 4-space indent); `independent-reviewer/.claude-plugin/plugin.json:2-6` (no indentation, spaces before colons). Neither file ends with a newline.
+- **Fix:** Reformat both with 2-space indentation like `settings.json` and `hooks.json`, and add a final newline.
 
-**L2. The hook does not check `stop_hook_active`.** `.claude/settings.json:13`
-This is harmless today because the hook never exits with code 2. If it is later changed to feed findings back through exit 2, the env guard alone will not prevent a loop in the main session.
-Fix: also read `stop_hook_active` from the hook's stdin JSON and skip the run when it is true.
-
-**L3. The hook reaches the subagent indirectly.** `.claude/settings.json:13`
-The child session has to decide on its own to use the `Agent` tool, which adds an extra model layer.
-Fix: call the reviewer directly with `claude -p --agent change-reviewer "..."`. This is more deterministic and cheaper.
-
-**L4. Line endings.** `.claude/settings.json`
-Git warns that LF will be replaced by CRLF.
-Fix: add `*.json text eol=lf` to `.gitattributes`.
+### L4. Hook command is POSIX-only
+- **Where:** `independent-reviewer/hooks/hooks.json:8`
+- **Problem:** `[ -n ... ] || ... || IN_REVIEW_HOOK=1 claude ...` needs a POSIX shell. It works with Git Bash on Windows, but it is fragile if hooks run through another shell. This behaviour carried over from the old hook and is not new.
+- **Fix:** No action is required. Optionally, put the command in a `scripts/` file inside the plugin, referenced through `${CLAUDE_PLUGIN_ROOT}`.
