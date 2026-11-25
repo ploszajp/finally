@@ -5,6 +5,8 @@
 **Read against:** `PLAN.md`, `MARKET_DATA_DESIGN.md`, `MARKET_INTERFACE.md`, `MARKET_SIMULATOR.md`, `MASSIVE_API.md`
 **Replaces:** the earlier review in this file (see §7 for the status of its findings)
 
+> **Update 2026-11-25:** the findings below have since been addressed. See §9 for how, and what remains open. §1–§8 describe the code as reviewed.
+
 ---
 
 ## 1. Verdict
@@ -217,3 +219,31 @@ The code has settled these points, but `PLAN.md` does not record them yet (§13 
 3. **M3, M4** after the PLAN §13 #9 and #10 decisions, before the API and frontend depend on the current shape.
 4. **M6** and **H1** before the Dockerfile is written.
 5. **M5** with the persistence work, then the low-priority items as convenient.
+
+---
+
+## 9. Resolution (branch `fix/market-data-review`)
+
+**Tests after the fixes:** 99 passed, also in 20 repeated runs. 99 % line and branch coverage. `ruff check` and `ruff format --check` are clean. As a check on the new tests, 12 of the 14 Massive tests fail against the old client (some only because a method signature changed; the real-SDK contract test is among the failures), and the real-server shutdown test fails when the uvicorn flag is removed.
+
+| Finding | Resolution |
+|---|---|
+| C1, C2 | `SnapshotMarketType.STOCKS.value`; `sip_timestamp / 1e9`, falling back to the current time |
+| C3 | Fake module removed; tests use real SDK models and `RESTClient` against a stub HTTP server. Planning docs corrected, including `quote.bid` / `quote.ask`, which also do not exist |
+| H1 | **Handled by configuration:** `--timeout-graceful-shutdown 2`, recorded in `PLAN.md` §11 and covered by a real-uvicorn test. The Dockerfile and run scripts do not exist yet and **must include the flag** |
+| M1 | Snapshots for tickers no longer tracked are ignored |
+| M2 | The first event is always a full snapshot, and an emptied cache sends `{}` (also covers reconnects) |
+| M3 | Added `reference_price` and `day_change_percent` |
+| M4 | New `tickers.py`; sources raise `InvalidTickerError`, and `start()` skips bad entries |
+| M5 | Hash-derived seed price. Restoring last prices after a restart is **not** done (needs the database) |
+| M6 | `uv.lock` added; `massive>=2.12.0` |
+| L1 | A second `start()` raises `RuntimeError` |
+| L2 | The cache rejects non-finite and non-positive prices |
+| L3 | The first poll runs in the background; sources expose `last_success_at` and `last_error`. Showing them in `/api/health` waits for that route |
+| L4 | Keepalive comment about every 10 s |
+| L5 | `dt` unchanged; the frontend rule (flash only on `up` / `down`) is in `PLAN.md` §6 |
+| L6, L7 | Tests cleaned up, fixed sleeps replaced by condition waits where they asserted progress, code formatted, loop scope set |
+
+**Still open:**
+- No call to the live Massive API has been made. Confirm the nanosecond timestamp unit and plan access with a real key.
+- For the API layer: pass watchlist ∪ positions to `start()`, never remove a ticker with an open position, and map `InvalidTickerError` to 400.

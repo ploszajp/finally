@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import math
 import random
@@ -22,8 +23,22 @@ from .seed_prices import (
     TICKER_PARAMS,
     TSLA_CORR,
 )
+from .tickers import normalize_ticker, normalize_tickers
 
 logger = logging.getLogger(__name__)
+
+
+def seed_price(ticker: str) -> float:
+    """Starting price for a ticker.
+
+    Tickers without a listed seed get a value in [50, 300] derived from a stable
+    hash, so re-adding one or restarting the process gives the same price.
+    (The built-in hash() is randomised per process, so it cannot be used.)
+    """
+    if ticker in SEED_PRICES:
+        return SEED_PRICES[ticker]
+    digest = hashlib.sha256(ticker.encode()).digest()
+    return 50.0 + (int.from_bytes(digest[:8], "big") % 25_001) / 100
 
 
 class GBMSimulator:
@@ -103,7 +118,7 @@ class GBMSimulator:
         if ticker in self._prices:
             return
         self._tickers.append(ticker)
-        self._prices[ticker] = SEED_PRICES.get(ticker, round(random.uniform(50.0, 300.0), 2))
+        self._prices[ticker] = seed_price(ticker)
         self._params[ticker] = dict(TICKER_PARAMS.get(ticker, DEFAULT_PARAMS))
 
     def _rebuild_cholesky(self) -> None:
@@ -150,14 +165,17 @@ class SimulatorDataSource(MarketDataSource):
         self._task: asyncio.Task | None = None
 
     async def start(self, tickers: list[str]) -> None:
-        tickers = [t.upper().strip() for t in tickers]
-        self._sim = GBMSimulator(tickers=tickers, event_probability=self._event_prob)
+        if self._task is not None:
+            raise RuntimeError("Simulator already started")
+        self._sim = GBMSimulator(
+            tickers=normalize_tickers(tickers), event_probability=self._event_prob
+        )
         for ticker in self._sim.get_tickers():
             price = self._sim.get_price(ticker)
             if price is not None:
                 self._cache.update(ticker=ticker, price=price)
         self._task = asyncio.create_task(self._run_loop(), name="simulator-loop")
-        logger.info("Simulator started with %d tickers", len(tickers))
+        logger.info("Simulator started with %d tickers", len(self.get_tickers()))
 
     async def stop(self) -> None:
         if self._task and not self._task.done():
@@ -170,16 +188,16 @@ class SimulatorDataSource(MarketDataSource):
         logger.info("Simulator stopped")
 
     async def add_ticker(self, ticker: str) -> None:
+        ticker = normalize_ticker(ticker)
         if self._sim is None:
             return
-        ticker = ticker.upper().strip()
         self._sim.add_ticker(ticker)
         price = self._sim.get_price(ticker)
         if price is not None and ticker not in self._cache:
             self._cache.update(ticker=ticker, price=price)
 
     async def remove_ticker(self, ticker: str) -> None:
-        ticker = ticker.upper().strip()
+        ticker = normalize_ticker(ticker)
         if self._sim:
             self._sim.remove_ticker(ticker)
         self._cache.remove(ticker)

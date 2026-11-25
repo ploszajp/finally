@@ -48,56 +48,37 @@ client = RESTClient()
 
 # Get snapshots for specific tickers (one API call)
 snapshots = client.get_snapshot_all(
-    market_type=SnapshotMarketType.STOCKS,
+    market_type=SnapshotMarketType.STOCKS.value,  # the string; the enum builds a wrong URL
     tickers=["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"],
 )
 
 for snap in snapshots:
     print(f"{snap.ticker}: ${snap.last_trade.price}")
-    print(f"  Day change: {snap.day.change_percent}%")
+    print(f"  Day change: {snap.todays_change_percent}%")
+    print(f"  Previous close: {snap.prev_day.close}")
     print(f"  Day OHLC: O={snap.day.open} H={snap.day.high} L={snap.day.low} C={snap.day.close}")
     print(f"  Volume: {snap.day.volume}")
 ```
 
-**Response structure** (per ticker):
+**Response structure** (per ticker, wire format as mapped by the SDK's `from_dict` methods in `massive` 2.12.0; abridged, illustrative values):
 ```json
 {
   "ticker": "AAPL",
-  "day": {
-    "open": 129.61,
-    "high": 130.15,
-    "low": 125.07,
-    "close": 125.07,
-    "volume": 111237700,
-    "volume_weighted_average_price": 127.35,
-    "previous_close": 129.61,
-    "change": -4.54,
-    "change_percent": -3.50
-  },
-  "last_trade": {
-    "price": 125.07,
-    "size": 100,
-    "exchange": "XNYS",
-    "timestamp": 1675190399000
-  },
-  "last_quote": {
-    "bid_price": 125.06,
-    "ask_price": 125.08,
-    "bid_size": 500,
-    "ask_size": 1000,
-    "spread": 0.02,
-    "timestamp": 1675190399500
-  },
-  "prev_daily_bar": { "...": "previous day OHLCV" },
-  "minute_volume": { "...": "volume per minute" }
+  "todaysChange": -4.54,
+  "todaysChangePerc": -3.50,
+  "day": {"o": 129.61, "h": 130.15, "l": 125.07, "c": 125.07, "v": 111237700, "vw": 127.35},
+  "prevDay": {"c": 129.61},
+  "lastTrade": {"p": 125.07, "s": 100, "x": 4, "t": 1675190399000000000},
+  "lastQuote": {"p": 125.06, "s": 5, "P": 125.08, "S": 10, "t": 1675190399500000000}
 }
 ```
 
-**Key fields we extract**:
+In `lastQuote`, lower-case `p`/`s` are the bid and upper-case `P`/`S` the ask.
+
+**Key fields we extract** (Python attribute names):
 - `last_trade.price` — current price for trading and display
-- `day.previous_close` — for calculating day change
-- `day.change_percent` — day change percentage
-- `last_trade.timestamp` — when the price was recorded
+- `last_trade.sip_timestamp` — trade time in **nanoseconds** (there is no `last_trade.timestamp`; confirm the unit with the first live call)
+- `prev_day.close` — reference price for the daily change (`day` has no `previous_close`)
 
 ### 2. Single Ticker Snapshot
 
@@ -106,7 +87,7 @@ For getting detailed data on one ticker (e.g., when user clicks a ticker for the
 **Python client**:
 ```python
 snapshot = client.get_snapshot_ticker(
-    market_type=SnapshotMarketType.STOCKS,
+    market_type=SnapshotMarketType.STOCKS.value,
     ticker="AAPL",
 )
 
@@ -194,8 +175,8 @@ print(f"Last trade: ${trade.price} x {trade.size}")
 
 # Last NBBO quote
 quote = client.get_last_quote(ticker="AAPL")
-print(f"Bid: ${quote.bid} x {quote.bid_size}")
-print(f"Ask: ${quote.ask} x {quote.ask_size}")
+print(f"Bid: ${quote.bid_price} x {quote.bid_size}")
+print(f"Ask: ${quote.ask_price} x {quote.ask_size}")
 ```
 
 ## How FinAlly Uses the API
@@ -204,7 +185,7 @@ The Massive poller runs as a background task:
 
 1. Collects all tickers from the watchlist
 2. Calls `get_snapshot_all()` with those tickers (one API call)
-3. Extracts `last_trade.price` and `day.previous_close` from each snapshot
+3. Extracts `last_trade.price`, `last_trade.sip_timestamp` and `prev_day.close` from each snapshot
 4. Writes to the shared in-memory price cache
 5. Sleeps for the poll interval, then repeats
 
@@ -221,15 +202,15 @@ async def poll_massive(api_key: str, get_tickers, price_cache, interval: float =
         tickers = get_tickers()
         if tickers:
             snapshots = client.get_snapshot_all(
-                market_type=SnapshotMarketType.STOCKS,
+                market_type=SnapshotMarketType.STOCKS.value,
                 tickers=tickers,
             )
             for snap in snapshots:
                 price_cache.update(
                     ticker=snap.ticker,
                     price=snap.last_trade.price,
-                    previous_close=snap.day.previous_close,
-                    timestamp=snap.last_trade.timestamp,
+                    reference_price=snap.prev_day.close,
+                    timestamp=snap.last_trade.sip_timestamp / 1e9,
                 )
 
         await asyncio.sleep(interval)
@@ -246,6 +227,6 @@ The client raises exceptions for HTTP errors:
 ## Notes
 
 - The snapshot endpoint returns data for **all requested tickers in one call** — this is critical for staying within rate limits on the free tier
-- Timestamps from the API are Unix milliseconds
+- Timestamp units differ by endpoint: aggregate bars use Unix milliseconds, trade and quote SIP timestamps use nanoseconds
 - During market closed hours, `last_trade.price` reflects the last traded price (may include after-hours)
 - The `day` object resets at market open; during pre-market, values may be from the previous session

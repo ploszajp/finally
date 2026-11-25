@@ -28,8 +28,15 @@ def test_zero_previous():
 def test_to_dict():
     d = PriceUpdate("AAPL", 191.0, 190.0, 12.5).to_dict()
     assert set(d) == {
-        "ticker", "price", "previous_price", "timestamp",
-        "change", "change_percent", "direction",
+        "ticker",
+        "price",
+        "previous_price",
+        "timestamp",
+        "change",
+        "change_percent",
+        "direction",
+        "reference_price",
+        "day_change_percent",
     }
     assert d["timestamp"] == 12.5
     assert d["direction"] == "up"
@@ -43,3 +50,8 @@ def test_frozen():
     u = PriceUpdate("A", 1.0, 1.0, 1.0)
     with pytest.raises(dataclasses.FrozenInstanceError):
         u.price = 2.0  # type: ignore[misc]
+
+
+def test_day_change_percent():
+    assert PriceUpdate("A", 110.0, 109.0, 1.0, 100.0).day_change_percent == 10.0
+    assert PriceUpdate("A", 110.0, 109.0, 1.0).day_change_percent == 0.0  # unknown

@@ -1,4 +1,7 @@
+import math
 import threading
+
+import pytest
 
 from app.market.cache import PriceCache
 
@@ -77,3 +80,26 @@ def test_thread_safety():
         t.join()
     assert len(c) == 8
     assert c.version == 8 * 500
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf, 0.0, -5.0, 0.001])
+def test_rejects_invalid_price(bad):
+    c = PriceCache()
+    c.update("A", 1.0)
+    version = c.version
+    with pytest.raises(ValueError):
+        c.update("A", bad)
+    assert c.get_price("A") == 1.0 and c.version == version
+
+
+def test_non_finite_timestamp_replaced():
+    assert math.isfinite(PriceCache().update("A", 1.0, timestamp=math.nan).timestamp)
+
+
+def test_reference_price():
+    c = PriceCache()
+    assert c.update("A", 100.0).reference_price == 100.0
+    assert c.update("A", 105.0).reference_price == 100.0
+    assert c.update("A", 105.0, reference_price=84.0).day_change_percent == 25.0
+    for ignored in (None, 0.0, math.nan):
+        assert c.update("A", 105.0, reference_price=ignored).reference_price == 84.0

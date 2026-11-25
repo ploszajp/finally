@@ -1,10 +1,14 @@
+import os
 import random
+import subprocess
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from app.market.seed_prices import SEED_PRICES
-from app.market.simulator import GBMSimulator
+from app.market.simulator import GBMSimulator, seed_price
 
 
 def test_step_returns_all_tickers():
@@ -122,10 +126,33 @@ def test_events_fire_with_probability_one():
     before = sim.get_price("AAPL")
     sim.step()
     ratio = sim._prices["AAPL"] / before
-    assert 0.0 < abs(ratio - 1) and 0.019 <= abs(ratio - 1) <= 0.051
+    assert 0.019 <= abs(ratio - 1) <= 0.051
 
 
 def test_params_not_shared_between_instances():
     a = GBMSimulator(["ZZZZ"])
     a._params["ZZZZ"]["sigma"] = 9
     assert GBMSimulator(["YYYY"])._params["YYYY"]["sigma"] == 0.25
+
+
+def test_unknown_ticker_price_survives_re_add():
+    sim = GBMSimulator(["PYPL"])
+    first = sim.get_price("PYPL")
+    sim.remove_ticker("PYPL")
+    sim.add_ticker("PYPL")
+    assert sim.get_price("PYPL") == first
+
+
+def test_seed_price_is_stable_across_processes():
+    """A different hash seed per process must not change the result."""
+    code = "from app.market.simulator import seed_price; print(seed_price('PYPL'))"
+    for hash_seed in ("1", "2"):
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=Path(__file__).resolve().parents[2],
+            env={**os.environ, "PYTHONHASHSEED": hash_seed},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert float(out.stdout) == seed_price("PYPL")
