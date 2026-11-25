@@ -24,14 +24,36 @@ async def test_events_retry_then_data():
     events = await collect(cache, FakeRequest(2))
     assert events[0] == "retry: 1000\n\n"
     assert len(events) == 2  # unchanged cache => only one data event
-    body = json.loads(events[1][len("data: "):])
+    body = json.loads(events[1][len("data: ") :])
     assert body["AAPL"]["price"] == 190.0
     assert events[1].endswith("\n\n")
 
 
-async def test_empty_cache_sends_no_data():
-    events = await collect(PriceCache(), FakeRequest(2))
-    assert events == ["retry: 1000\n\n"]
+async def test_empty_cache_sends_empty_snapshot_once():
+    events = await collect(PriceCache(), FakeRequest(3))
+    assert events == ["retry: 1000\n\n", "data: {}\n\n"]
+
+
+async def test_removing_last_ticker_sends_empty_snapshot():
+    cache = PriceCache()
+    cache.update("AAPL", 1.0)
+    events = []
+    async for event in _generate_events(cache, FakeRequest(4), interval=0.001):
+        events.append(event)
+        if len(events) == 2:
+            cache.remove("AAPL")
+    assert events[-1] == "data: {}\n\n"
+    assert len(events) == 3
+
+
+async def test_keepalive_while_unchanged():
+    events = [
+        e
+        async for e in _generate_events(
+            PriceCache(), FakeRequest(4), interval=0.01, keepalive_interval=0.001
+        )
+    ]
+    assert events[2:] == [": keepalive\n\n"] * 3
 
 
 async def test_immediate_disconnect():

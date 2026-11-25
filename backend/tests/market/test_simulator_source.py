@@ -1,7 +1,10 @@
 import asyncio
 
+import pytest
+
 from app.market.cache import PriceCache
 from app.market.simulator import SimulatorDataSource
+from tests.market.helpers import wait_for
 
 
 async def test_start_seeds_cache():
@@ -17,8 +20,7 @@ async def test_prices_update():
     src = SimulatorDataSource(cache, update_interval=0.01)
     await src.start(["AAPL"])
     v = cache.version
-    await asyncio.sleep(0.15)
-    assert cache.version > v
+    await wait_for(lambda: cache.version > v)
     await src.stop()
 
 
@@ -76,6 +78,33 @@ async def test_loop_survives_step_exception():
         return real()
 
     src._sim.step = flaky
-    await asyncio.sleep(0.1)
-    assert calls["n"] > 1
+    await wait_for(lambda: calls["n"] > 1)
+    await src.stop()
+
+
+async def test_start_twice_raises():
+    src = SimulatorDataSource(PriceCache())
+    await src.start(["AAPL"])
+    task = src._task
+    with pytest.raises(RuntimeError):
+        await src.start(["MSFT"])
+    assert src._task is task and src.get_tickers() == ["AAPL"]
+    await src.stop()
+
+
+async def test_start_skips_invalid_tickers():
+    cache = PriceCache()
+    src = SimulatorDataSource(cache)
+    await src.start(["aapl", "", "AAPL", "bad ticker"])
+    assert src.get_tickers() == ["AAPL"] and set(cache.get_all()) == {"AAPL"}
+    await src.stop()
+
+
+async def test_reference_price_is_session_start():
+    cache = PriceCache()
+    src = SimulatorDataSource(cache, update_interval=0.001)
+    await src.start(["AAPL"])
+    v = cache.version
+    await wait_for(lambda: cache.version > v + 5)
+    assert cache.get("AAPL").reference_price == 190.0
     await src.stop()

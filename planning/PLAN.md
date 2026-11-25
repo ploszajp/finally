@@ -170,13 +170,31 @@ Both the simulator and the Massive client implement the same abstract interface.
 - The cache holds the latest price, previous price, and timestamp for each ticker
 - SSE streams read from this cache and push updates to connected clients
 - This architecture supports future multi-user scenarios without changes to the data layer
+- Each entry also holds a **reference price**, the baseline for the daily change %: the first price of the session in the simulator, the previous day's close with Massive
+
+### Tracked Tickers
+
+- The source tracks the **union of the watchlist and open positions**. Pass that union to `start()`
+- The API layer pushes changes with `await source.add_ticker()` / `remove_ticker()`; the source does not read the database
+- Removing a ticker from the watchlist is allowed, but call `remove_ticker()` only if no position is open (removal also drops the cached price). After selling out of a ticker that is not on the watchlist, call it too
+- All tickers are normalised with `normalize_ticker()` (trim, upper-case, `^[A-Z][A-Z.\-]{0,9}$`); bad format raises `InvalidTickerError`, which the API maps to 400. Only the format is checked: the simulator prices any well-formed ticker
 
 ### SSE Streaming
 
 - Endpoint: `GET /api/stream/prices`
 - Long-lived SSE connection; client uses native `EventSource` API
-- Server pushes price updates for all tickers known to the system at a regular cadence (~500ms) — in the single-user model this is equivalent to the user's watchlist
-- Each SSE event contains ticker, price, previous price, timestamp, and change direction
+- Unnamed (`message`) events, **one aggregate event per cache change** (checked every ~500ms), shaped as `{"<TICKER>": {...}}`. Each event is the complete price set, so the client drops tickers that are missing
+- The first event after connecting is always a full snapshot, `{}` if empty. A `: keepalive` comment is sent about every 10s while nothing changes
+- Fields per ticker:
+
+| Field | Meaning |
+|---|---|
+| `ticker`, `price`, `previous_price` | Symbol, latest price, price at the previous update |
+| `timestamp` | **Unix epoch seconds** (float); in JavaScript `new Date(timestamp * 1000)` |
+| `change`, `change_percent` | Change since the previous update (**not** the daily change) |
+| `direction` | `"up"`, `"down"` or `"flat"`. Flash only on `up` / `down`; many ticks are flat after rounding to cents |
+| `reference_price`, `day_change_percent` | Daily baseline and **daily change %** for the watchlist |
+
 - Client handles reconnection automatically (EventSource has built-in retry)
 
 ---
@@ -383,13 +401,15 @@ Stage 1: Node 20 slim
 Stage 2: Python 3.12 slim
   - Install uv
   - Copy backend/
-  - uv sync (install Python dependencies from lockfile)
+  - uv sync --frozen (install Python dependencies from lockfile)
   - Copy frontend build output into a static/ directory
   - Expose port 8000
-  - CMD: uvicorn serving FastAPI app
+  - CMD: uvicorn serving FastAPI app, with --timeout-graceful-shutdown 2
 ```
 
 FastAPI serves the static frontend files and all API routes on port 8000.
+
+`--timeout-graceful-shutdown` is required: open SSE connections otherwise block shutdown, so `source.stop()` and other cleanup never run before Docker kills the container. The same flag applies to local runs.
 
 ### Docker Volume
 
@@ -459,18 +479,18 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 
 ## 13. Review: 10 najważniejszych problemów
 
-*Review dokumentacji (2026-11-24). Rozstrzygnij każdy punkt (wpisz decyzję do odpowiedniej sekcji powyżej i usuń go stąd), zanim zaczną pracę agenci, którzy od niego zależą. Punkty 1–5 blokują start.*
+*Review dokumentacji (2026-11-24). Rozstrzygnij każdy punkt (wpisz decyzję do odpowiedniej sekcji powyżej i usuń go stąd), zanim zaczną pracę agenci, którzy od niego zależą. Z punktów blokujących start otwarte są 1, 4 i 5.*
 
 1. **Brak kształtów odpowiedzi API (§8).** Frontend i backend zbudują różne kontrakty, jeśli JSON nie zostanie zapisany. Trzeba podać pola dla `GET /api/portfolio` (cash, total_value, positions: ticker, quantity, avg_cost, current_price, unrealized_pnl, pnl_pct), `POST /api/portfolio/trade` (sukces i błąd), `GET /api/portfolio/history`, `GET /api/watchlist` i `POST /api/chat`. Do tego jeden format błędu (np. `{"detail": "..."}`) i stałe kody statusu (400/422 walidacja, 404 nieznany ticker, 409 duplikat na watchliście). Najlepiej w osobnym pliku `planning/API.md` z przykładami JSON.
-2. **Brak formatu zdarzenia SSE (§6).** Jedno zdarzenie na ticker czy jedno zbiorcze na tick? Nazwane (`event: price`) czy domyślne `message`? Dokładne nazwy pól i format timestampu (ISO czy epoch ms)? Rekomendacja: jedno zbiorcze zdarzenie na tick ze wszystkimi tickerami, a zaraz po połączeniu wysłanie pełnego stanu cache.
-3. **Które tickery mają ceny?** §6 mówi „tickery z watchlisty”, ale użytkownik może trzymać pozycję w tickerze usuniętym z watchlisty. Bez ceny psują się P&L i wartość portfela. Rekomendacja: źródło danych śledzi **sumę watchlisty i otwartych pozycji**; usunięcie z watchlisty jest dozwolone. Trzeba też określić, jak zadanie rynkowe dowiaduje się o zmianach (push: `source.add_ticker()` czy pull z DB co cykl).
+2. *Rozstrzygnięte — zob. §6 „SSE Streaming”.*
+3. *Rozstrzygnięte — zob. §6 „Tracked Tickers”.*
 4. **Zachowanie mock LLM nie jest opisane.** Testy E2E od niego zależą („transakcja pojawia się inline”). Przykład: wiadomość zawierająca „buy” → kupno 1 akcji AAPL; „add X” → dodanie do watchlisty; wszystko inne → stała odpowiedź tekstowa. Bez tego agent testów i agent backendu się rozjadą.
 5. **Schemat i wykonanie akcji LLM (§9).** (a) W trybie strict structured outputs wszystkie pola muszą być `required`, więc `trades` i `watchlist_changes` powinny być wymaganymi tablicami (pustymi, gdy nieużywane). (b) Kolejność: najpierw zmiany watchlisty, potem transakcje. (c) Każda akcja wykonywana niezależnie (błąd jednej nie zatrzymuje reszty). (d) Odpowiedź `/api/chat` i kolumna `chat_messages.actions` zawierają wynik każdej akcji (wykonana / odrzucona z powodem), a nie tylko to, o co prosił LLM.
 6. **Obsługa błędów LLM.** Co zwraca `/api/chat` przy timeoucie, błędzie sieci, niepoprawnym JSON albo braku `OPENROUTER_API_KEY`? Czy wiadomość użytkownika jest zapisywana? Rekomendacja: aplikacja startuje bez klucza, a czat zwraca przyjazny komunikat błędu. Trzeba też ustalić okno historii wysyłanej do LLM (np. ostatnie 20 wiadomości).
 7. **Brak endpointu historii czatu.** Panel czatu pokazuje „przewijaną historię”, a wiadomości są w `chat_messages`, ale §8 nie ma `GET /api/chat/history`. Po odświeżeniu strony panel jest pusty. Dodaj endpoint albo napisz wprost, że historia nie jest przywracana.
 8. **Sprzeczności w specyfikacji.** (a) §11 używa named volume (`finally-data:/app/db`), ale twierdzi, że katalog `db/` projektu jest mapowany na `/app/db`. Wybierz jedno. (b) §5 mówi, że backend czyta `.env` z katalogu projektu, ale w kontenerze go nie ma. Rekomendacja: `--env-file .env`, backend czyta tylko `os.environ`. (c) §4 mówi „lazy init przy pierwszym żądaniu”, §7 „przy starcie (lub pierwszym żądaniu)”. Rekomendacja: raz przy starcie (FastAPI lifespan), z zapisem pierwszego snapshotu portfela, żeby wykres P&L nie był pusty. (d) §10: Recharts renderuje SVG, nie canvas, a żadna z bibliotek nie pokrywa treemapy. Rekomendacja: Lightweight Charts dla wykresów liniowych i treemapa z divów (łatwa do testowania w E2E).
-9. **„Daily change %” nie ma punktu odniesienia.** Symulator nie ma otwarcia sesji ani poprzedniego zamknięcia, a Massive ma. Zdefiniuj, co eksponuje wspólny interfejs (np. zmiana od ceny startowej sesji serwera). Doprecyzuj też, że „% change” w tabeli pozycji to niezrealizowany P&L względem `avg_cost`.
-10. **Walidacja transakcji i tickerów.** Tickery normalizowane (wielkie litery, trim) na każdej ścieżce. Co z nieznanym tickerem (`ZZZZ`): regex formatu, odrzucenie? Transakcja bez ceny w cache → błąd. `quantity > 0`, zaokrąglanie (gotówka do centów, ilość do 4 miejsc). Sprzedaż całej pozycji usuwa wiersz, a `avg_cost` nie zmienia się przy częściowej sprzedaży. Odczyt i zapis gotówki/pozycji w jednej transakcji SQLite, żeby równoczesny zakup ręczny i przez LLM nie przeszedł dwa razy.
+9. *Częściowo rozstrzygnięte — dzienna zmiana: zob. §6 (`day_change_percent`).* Do zrobienia w UI: „% change” w tabeli pozycji to niezrealizowany P&L względem `avg_cost`.
+10. **Walidacja transakcji.** (Format i normalizacja tickerów rozstrzygnięte — zob. §6 „Tracked Tickers”.) Transakcja bez ceny w cache → błąd. `quantity > 0`, zaokrąglanie (gotówka do centów, ilość do 4 miejsc). Sprzedaż całej pozycji usuwa wiersz, a `avg_cost` nie zmienia się przy częściowej sprzedaży. Odczyt i zapis gotówki/pozycji w jednej transakcji SQLite, żeby równoczesny zakup ręczny i przez LLM nie przeszedł dwa razy.
 
 ### Uproszczenia
 
@@ -478,4 +498,4 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - **Massive API jako stretch goal.** Symulator pokrywa wszystkie scenariusze demo i testów; interfejs abstrakcyjny zostaje, żeby dodać Massive później.
 - **Usunąć test E2E „SSE resilience”** albo zastąpić go testem jednostkowym wskaźnika połączenia. Restart serwera w Playwright jest kruchy, a EventSource ma wbudowany retry.
 - **Skrypty start/stop** mogą być jednolinijkowymi wrapperami na `docker compose up -d` / `down`, które działa tak samo na każdym systemie.
-- **Node 20 jest po EOL** (kwiecień 2026). W Dockerfile użyj Node 22 LTS i `uv sync --frozen`.
+- **Node 20 jest po EOL** (kwiecień 2026). W Dockerfile użyj Node 22 LTS.

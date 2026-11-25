@@ -74,7 +74,7 @@ SEED_PRICES: dict[str, float] = {
 }
 ```
 
-Tickers added dynamically (not in the seed list) start at a random price between $50-$300.
+Tickers not in the seed list start at a price between $50 and $300 derived from a SHA-256 hash of the symbol (`seed_price()` in `simulator.py`), so re-adding a ticker or restarting gives the same value. The implementation sketch below predates this. Prices are not restored from a database after a restart.
 
 ## Per-Ticker Parameters
 
@@ -129,7 +129,7 @@ class GBMSimulator:
         if ticker in self._prices:
             return
         self._tickers.append(ticker)
-        self._prices[ticker] = SEED_PRICES.get(ticker, random.uniform(50, 300))
+        self._prices[ticker] = seed_price(ticker)
         self._params[ticker] = TICKER_PARAMS.get(ticker, DEFAULT_PARAMS)
         self._rebuild_cholesky()
 

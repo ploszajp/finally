@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import math
 import time
 from threading import Lock
 
 from .models import PriceUpdate
+
+
+def _valid_price(value: float) -> bool:
+    # Checked after rounding, so a value that rounds to 0.00 is rejected too.
+    return math.isfinite(value) and round(value, 2) > 0
 
 
 class PriceCache:
@@ -16,16 +22,34 @@ class PriceCache:
         self._lock = Lock()
         self._version = 0
 
-    def update(self, ticker: str, price: float, timestamp: float | None = None) -> PriceUpdate:
+    def update(
+        self,
+        ticker: str,
+        price: float,
+        timestamp: float | None = None,
+        reference_price: float | None = None,
+    ) -> PriceUpdate:
+        """Store a new price.
+
+        Raises ValueError unless the price is finite and positive. A missing or
+        non-finite timestamp becomes the current time. If reference_price is not
+        given (or invalid), the ticker keeps its existing one; a new ticker uses
+        its first price.
+        """
+        if not _valid_price(price):
+            raise ValueError(f"Invalid price for {ticker}: {price!r}")
         with self._lock:
-            ts = timestamp if timestamp is not None else time.time()
+            ts = timestamp if timestamp is not None and math.isfinite(timestamp) else time.time()
             prev = self._prices.get(ticker)
             previous_price = prev.price if prev else price
+            if reference_price is None or not _valid_price(reference_price):
+                reference_price = prev.reference_price if prev else price
             update = PriceUpdate(
                 ticker=ticker,
                 price=round(price, 2),
                 previous_price=round(previous_price, 2),
                 timestamp=ts,
+                reference_price=round(reference_price, 2),
             )
             self._prices[ticker] = update
             self._version += 1

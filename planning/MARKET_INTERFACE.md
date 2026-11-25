@@ -1,5 +1,7 @@
 # Market Data Interface Design
 
+> The snippets below are design sketches. `backend/app/market/` is authoritative. Compared with the sketches it also has ticker validation (`tickers.py`), `reference_price` / `day_change_percent` on `PriceUpdate`, price validation in the cache, and `last_success_at` / `last_error` on sources.
+
 Unified Python interface for market data in FinAlly. Two implementations (simulator and Massive API) behind one abstract interface. All downstream code — SSE streaming, price cache, portfolio valuation — is source-agnostic.
 
 ## Core Data Model
@@ -171,14 +173,14 @@ class MassiveDataSource(MarketDataSource):
         # Run synchronous Massive client in thread pool
         snapshots = await asyncio.to_thread(
             self._client.get_snapshot_all,
-            market_type=SnapshotMarketType.STOCKS,
+            market_type=SnapshotMarketType.STOCKS.value,  # the string, not the enum
             tickers=self._tickers,
         )
         for snap in snapshots:
             self._cache.update(
                 ticker=snap.ticker,
                 price=snap.last_trade.price,
-                timestamp=snap.last_trade.timestamp / 1000,  # ms -> seconds
+                timestamp=snap.last_trade.sip_timestamp / 1e9,  # ns -> seconds
             )
 ```
 
