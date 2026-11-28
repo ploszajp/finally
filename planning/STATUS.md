@@ -13,7 +13,7 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `f60f1ea` (snapshot po awarii pierws
 | API / serwisy / `main.py` | backend-engineer | prawie gotowe | 2026-11-28: `ruff format --check` OK (65 plików) | — |
 | LLM / czat (`backend/app/llm/`) | llm-engineer | w toku — brak `router.py`, serwisu czatu, testów `tests/llm/`; 1 błąd ruff (BLE001 `app/llm/client.py:58`) | 2026-11-28: 16 testów integracyjnych czatu nie przechodzi (`/api/chat` → 405) | — |
 | Frontend (`frontend/`) | frontend-engineer | w toku — są pierwsze komponenty (Header, Watchlist, Sparkline, TimeSeriesChart, usePriceStream, lib/*) | nie zweryfikowano | — |
-| Docker / skrypty | devops-engineer | pliki istnieją, obraz nigdy nie zbudowany | nie zweryfikowano | czeka na build frontendu |
+| Docker / skrypty | devops-engineer | faza 1 OK: obraz buduje się i działa (na starym scaffoldzie frontendu); poprawki w Dockerfile (cache uv jako mount) i skryptach | 2026-11-28 (raport devops): health, UI, SSE, trwałość wolumenu, `docker stop` 3 s, non-root, skrypty idempotentne; team-lead: parse-check skryptów .ps1 OK, tryb 100755 dla .sh | rebuild czeka na zielony `npm run build` (brak `@/components/Terminal`) |
 | E2E (`test/`) | integration-tester | w toku — specyfikacje 01–06 istnieją | nie uruchomiono | czeka na frontend, `/api/chat`, obraz Docker |
 
 ### Wyniki weryfikacji backendu (2026-11-28, team-lead)
@@ -32,4 +32,8 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `f60f1ea` (snapshot po awarii pierws
 
 ## Dziennik
 
+- **2026-11-28** — devops-engineer, faza 1: obraz `finally:latest` zbudowany i zweryfikowany w kontenerze testowym (health, `/` → HTML, SSE ze snapshotem, zakup 3 AAPL przetrwał stop/start, `docker stop` 3 s, uid 1000, HEALTHCHECK healthy, shellcheck czysty). Poprawki: cache uv w BuildKit mount (obraz 906 MB, w tym 349 MB cache; nowego rozmiaru jeszcze nie zmierzono), `stop_windows.ps1` kończy się kodem 0, skrypty start kończą się kodem 1, jeśli health nie odpowie w 30 s, `chmod +x` dla .sh. Bloker: frontend w trakcie edycji nie buduje się (`Can't resolve '@/components/Terminal'`). Uwagi dla backendu: hałaśliwy traceback CancelledError z SSE przy zamykaniu (niekrytyczny).
+
+- **2026-11-28** — frontend-engineer: opublikował kontrakt `data-testid` (header, watchlist, wykresy, heatmapa, pozycje, pasek transakcji, czat). team-lead przekazał go integration-testerowi. Frontend zaczyna od layoutu i SSE.
+- **2026-11-28** — PLAN §12/§13 zaktualizowany: test „SSE resilience” zastąpiony testem wskaźnika połączenia (blokada `/api/stream/prices` w przeglądarce, bez restartu serwera; `test/e2e/06-connection.spec.ts`).
 - **2026-11-28** — team-lead: start drugiego przebiegu po awarii. Zweryfikowano stan backendu (wyniki wyżej). Utworzono STATUS.md. Rozesłano zadania.

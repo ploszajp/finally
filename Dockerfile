@@ -29,12 +29,15 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Dependencies only (cached layer), then the project itself.
+# Dependencies only (cached layer), then the project itself. The uv cache
+# lives in a BuildKit cache mount so it is not baked into the image (~350 MB).
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
 
 COPY backend/ ./
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 COPY --from=frontend /frontend/out ./static
 

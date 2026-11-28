@@ -55,12 +55,18 @@ if (Test-DockerOk @('container', 'inspect', $Container)) {
 if ($LASTEXITCODE -ne 0) { Write-Error 'docker run failed.'; exit 1 }
 
 Write-Host 'Waiting for FinAlly to become healthy...'
+$healthy = $false
 for ($i = 0; $i -lt 30; $i++) {
     try {
         $resp = Invoke-WebRequest -Uri "$Url/api/health" -UseBasicParsing -TimeoutSec 2
-        if ($resp.StatusCode -eq 200) { break }
+        if ($resp.StatusCode -eq 200) { $healthy = $true; break }
     } catch { }
     Start-Sleep -Seconds 1
+}
+
+if (-not $healthy) {
+    Write-Error "FinAlly did not become healthy within 30s. Check: docker logs $Container"
+    exit 1
 }
 
 Write-Host "FinAlly is running at $Url"

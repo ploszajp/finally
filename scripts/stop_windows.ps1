@@ -17,3 +17,4 @@ if ($exists) {
 } else {
     Write-Host 'FinAlly is not running.'
 }
+exit 0

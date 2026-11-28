@@ -52,12 +52,19 @@ docker run -d \
   "$IMAGE" >/dev/null
 
 echo "Waiting for FinAlly to become healthy..."
+HEALTHY=0
 for _ in $(seq 1 30); do
   if curl -fsS "${URL}/api/health" >/dev/null 2>&1; then
+    HEALTHY=1
     break
   fi
   sleep 1
 done
+
+if [ "$HEALTHY" -ne 1 ]; then
+  echo "FinAlly did not become healthy within 30s. Check: docker logs $CONTAINER" >&2
+  exit 1
+fi
 
 echo "FinAlly is running at ${URL}"
 

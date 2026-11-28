@@ -486,7 +486,7 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - Sell shares: cash increases, position updates or disappears
 - Portfolio visualization: heatmap renders with correct colors, P&L chart has data points
 - AI chat (mocked): send a message, receive a response, trade execution appears inline
-- SSE resilience: disconnect and verify reconnection
+- Connection indicator: green (`connected`) while the price stream is up; when the browser blocks `/api/stream/prices` it shows reconnecting/disconnected and returns to connected once unblocked (no server restart, see `test/e2e/06-connection.spec.ts`)
 
 ---
 
@@ -509,4 +509,4 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 
 - **Złożone klucze główne** `(user_id, ticker)` w `watchlist` i `positions` zamiast UUID: prostsze upserty (`INSERT ... ON CONFLICT`).
 - **Massive API jako stretch goal.** Symulator pokrywa wszystkie scenariusze demo i testów; interfejs abstrakcyjny zostaje, żeby dodać Massive później.
-- **Usunąć test E2E „SSE resilience”** albo zastąpić go testem jednostkowym wskaźnika połączenia. Restart serwera w Playwright jest kruchy, a EventSource ma wbudowany retry.
+- *Rozstrzygnięte — „SSE resilience” zastąpiony testem wskaźnika połączenia, zob. §12.*
