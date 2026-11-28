@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
  * FinAlly E2E configuration.
  *
  * BASE_URL points at a running app (default http://localhost:8000).
- * In docker-compose.test.yml it is http://app:8000.
+ * In docker-compose.test.yml it is http://finally-app:8000.
  *
  * The app is single-user with shared server state, so tests run serially
  * in one worker, in file-name order (01-, 02-, ...). 01-fresh-start must

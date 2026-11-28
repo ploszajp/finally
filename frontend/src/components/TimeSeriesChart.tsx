@@ -8,6 +8,7 @@ import {
   LineStyle,
   createChart,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -22,16 +23,29 @@ interface Props {
   baseline?: number | null;
 }
 
-const hexToRgba = (hex: string, alpha: number) => {
+const AUTO_FIT_POINTS = 120;
+
+const hexToRgba =(hex: string, alpha: number) => {
   const n = parseInt(hex.replace("#", ""), 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 };
 
-/** Canvas area chart (Lightweight Charts v5) that fills its parent. */
+const seriesColors = (color: string) => ({
+  lineColor: color,
+  topColor: hexToRgba(color, 0.28),
+  bottomColor: hexToRgba(color, 0.02),
+  priceLineColor: color,
+});
+
+/**
+ * Canvas area chart (Lightweight Charts v5) that fills its parent. The chart is
+ * created once per mount; prop changes are applied with applyOptions/setData.
+ */
 export default function TimeSeriesChart({ data, color, secondsVisible = true, baseline = null }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
+  const baselineRef = useRef<IPriceLine | null>(null);
   const lastLengthRef = useRef(0);
 
   useEffect(() => {
@@ -51,58 +65,61 @@ export default function TimeSeriesChart({ data, color, secondsVisible = true, ba
         horzLines: { color: "rgba(35, 45, 58, 0.55)" },
       },
       rightPriceScale: { borderColor: "#232d3a" },
-      timeScale: { borderColor: "#232d3a", timeVisible: true, secondsVisible },
+      timeScale: { borderColor: "#232d3a", timeVisible: true },
       crosshair: { mode: CrosshairMode.Magnet },
     });
-    const series = chart.addSeries(AreaSeries, {
-      lineColor: color,
-      topColor: hexToRgba(color, 0.28),
-      bottomColor: hexToRgba(color, 0.02),
+    seriesRef.current = chart.addSeries(AreaSeries, {
       lineWidth: 2,
       priceLineVisible: true,
-      priceLineColor: color,
       priceLineStyle: LineStyle.Dotted,
     });
     chartRef.current = chart;
-    seriesRef.current = series;
     lastLengthRef.current = 0;
     return () => {
-      chart.remove();
-      chartRef.current = null;
       seriesRef.current = null;
+      baselineRef.current = null;
+      chartRef.current = null;
+      chart.remove();
     };
-  }, [color, secondsVisible]);
+  }, []);
+
+  useEffect(() => {
+    seriesRef.current?.applyOptions(seriesColors(color));
+  }, [color]);
+
+  useEffect(() => {
+    chartRef.current?.applyOptions({ timeScale: { secondsVisible } });
+  }, [secondsVisible]);
 
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
     series.setData(data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-    // Fit once when data first arrives or is replaced by a different series.
-    if (lastLengthRef.current === 0 || data.length < lastLengthRef.current) {
+    // Keep fitting while the series is short (it fills in from page load), and
+    // whenever it is replaced by a shorter one; after that the user can zoom/pan.
+    if (data.length > 0 && (data.length <= AUTO_FIT_POINTS || data.length < lastLengthRef.current)) {
       chartRef.current?.timeScale().fitContent();
     }
     lastLengthRef.current = data.length;
-  }, [data, color, secondsVisible]);
+  }, [data]);
 
   useEffect(() => {
     const series = seriesRef.current;
-    if (!series || baseline == null) return;
-    const line = series.createPriceLine({
-      price: baseline,
-      color: "#4f5b6b",
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: false,
-    });
-    return () => {
-      // Series may already be gone if the chart was recreated.
-      try {
-        series.removePriceLine(line);
-      } catch {
-        /* chart removed */
-      }
-    };
-  }, [baseline, color, secondsVisible]);
+    if (!series) return;
+    if (baselineRef.current) {
+      series.removePriceLine(baselineRef.current);
+      baselineRef.current = null;
+    }
+    if (baseline != null) {
+      baselineRef.current = series.createPriceLine({
+        price: baseline,
+        color: "#4f5b6b",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: false,
+      });
+    }
+  }, [baseline]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }

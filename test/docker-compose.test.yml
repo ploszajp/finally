@@ -9,7 +9,9 @@
 name: finally-test
 
 services:
-  app:
+  # Not named "app": Chromium HSTS-preloads the .app TLD, so http://app:8000
+  # is force-upgraded to HTTPS (ERR_SSL_PROTOCOL_ERROR).
+  finally-app:
     build:
       context: ..
       dockerfile: Dockerfile
@@ -31,11 +33,11 @@ services:
   playwright:
     image: mcr.microsoft.com/playwright:v1.65.1-noble
     depends_on:
-      app:
+      finally-app:
         condition: service_healthy
     working_dir: /e2e
     environment:
-      BASE_URL: http://app:8000
+      BASE_URL: http://finally-app:8000
       CI: "true"
     volumes:
       - ./:/e2e

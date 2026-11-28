@@ -16,12 +16,17 @@ interface Props {
 }
 
 export function PriceCell({ ticker, live, fallback }: { ticker: string; live?: PriceUpdate; fallback: number | null }) {
+  // Timestamp of the tick whose flash animation already finished; the class is
+  // removed once the ~500ms fade ends and re-applied on the next up/down tick.
+  const [finishedAt, setFinishedAt] = useState<number | null>(null);
   const direction = live?.direction ?? "flat";
-  const flashing = live && (direction === "up" || direction === "down");
+  const flashing =
+    live !== undefined && (direction === "up" || direction === "down") && live.timestamp !== finishedAt;
   return (
     <span
       // Remount on each up/down tick so the CSS fade animation replays.
       key={flashing ? `${live.timestamp}` : "steady"}
+      onAnimationEnd={() => live && setFinishedAt(live.timestamp)}
       data-testid={`watchlist-price-${ticker}`}
       data-direction={direction}
       className={`num rounded-sm px-1 text-[13px] text-text ${
