@@ -2,7 +2,7 @@
 
 Prowadzi: team-lead. Plik aktualizowany przy każdym raporcie. Źródło prawdy kontraktów: `planning/API.md`, `planning/API_CHAT.md`, `planning/PLAN.md`.
 
-Gałąź: `AgentTeams`. **Stan: UKOŃCZONE (2026-11-28).** Końcowy commit kodu: `c5e50ee`. Snapshot po awarii: `f60f1ea`.
+Gałąź: `AgentTeams`. **Stan: UKOŃCZONE (2026-11-28).** Końcowy commit kodu: `947a576`. Snapshot po awarii: `f60f1ea`.
 
 ## Stan obszarów
 
@@ -10,26 +10,28 @@ Gałąź: `AgentTeams`. **Stan: UKOŃCZONE (2026-11-28).** Końcowy commit kodu:
 |---|---|---|---|---|
 | Kontrakty (API.md, API_CHAT.md, PLAN §12/§13) | team-lead | gotowe | 2026-11-28 | — |
 | Warstwa DB (`backend/app/db/`) | backend-engineer | gotowe | 2026-11-28 team-lead: pełny pytest zielony | — |
-| API / serwisy / `main.py` | backend-engineer | gotowe | 2026-11-28 team-lead: pełny pytest zielony, ruff czysty | — |
+| API / serwisy / `main.py` | backend-engineer | gotowe (w tym czyste zamykanie SSE: 0,2 s, bez tracebacku) | 2026-11-28 team-lead: pełny pytest zielony, ruff czysty | — |
 | LLM / czat (`backend/app/llm/`) | llm-engineer | gotowe — router, serwis, 54 testy w `tests/llm/`; test z prawdziwym kluczem OK (9,9 s, poprawny structured output) | 2026-11-28 team-lead: **217 passed, 1 skipped**, `ruff check` i `ruff format --check` czyste (72 pliki) | — |
 | Frontend (`frontend/`) | frontend-engineer | gotowe; sprawdzone ręcznie w przeglądarce z backendem (mock), także szerokość tabletu | 2026-11-28 team-lead: `npx vitest run` **39/39**, `npm run lint` czysty, `npm run build` OK | — |
 | Docker / skrypty | devops-engineer | gotowe — obraz 582 MB, bez `.env` w obrazie, non-root | 2026-11-28 (raport devops): health, UI, SSE, `/api/chat` (mock), trwałość wolumenu `finally-data`, `docker stop` 2–4 s, skrypty idempotentne; team-lead: parse-check `.ps1`, tryb 100755 dla `.sh` | — |
-| E2E (`test/`) | integration-tester | gotowe — **24/24 w Dockerze na HEAD `c5e50ee`** | 2026-11-28 (raport): `build --no-cache finally-app` + `up --abort-on-container-exit --exit-code-from playwright` → **24 passed (36,8 s)**, exit 0, 0 flaky; team-lead: `tsc --noEmit` w test/ OK | — |
+| E2E (`test/`) | integration-tester | gotowe — **24/24 w Dockerze na HEAD `947a576`** | 2026-11-28 (raport): `build --no-cache finally-app` + `up --abort-on-container-exit --exit-code-from playwright` → **24 passed (30,6 s)**, exit 0, 0 flaky (wcześniej na `c5e50ee`: 24 passed, 36,8 s); team-lead: `tsc --noEmit` w test/ OK | — |
 
 ### Wyniki weryfikacji (team-lead)
 
-- Backend (`5d84ee6`, bez zmian do końca): `uv run pytest -q` **217 passed, 1 skipped** (401 s); `ruff check .` All checks passed; `ruff format --check .` 72 files already formatted.
+- Backend (`947a576`): `uv run pytest -q` **275 passed, 1 skipped** (276 s; pominięty test SIGTERM tylko dla POSIX); `ruff check .` All checks passed; `ruff format --check .` 73 files already formatted. (Wcześniej na `5d84ee6`: 217 passed.)
 - Frontend (`41edfac`): vitest 39/39, lint czysty, build OK.
 - Na starcie przebiegu: 16 failed / 187 passed (brak routera czatu), 1 błąd ruff (BLE001).
 
 ## Znane drobne problemy / dalsze kroki
 
-1. Przy `docker stop` w logach pojawia się traceback CancelledError z SSE; zamykanie przebiega poprawnie. Gotowa poprawka backend-engineera (zamykanie w 0,2 s bez tracebacku, 4 testy) leży poza repo jako łatka w katalogu tymczasowym sesji (`scratchpad\sse-shutdown.patch` + `test_shutdown.py`; może zostać wyczyszczony). Wprowadzenie: `git apply`, skopiować test, pełny pytest i ruff.
+1. ~~Traceback CancelledError z SSE przy `docker stop`~~ — naprawione w `947a576` (decyzja użytkownika: zachować poprawkę).
 2. Czat z prawdziwym LLM sprawdzony jednym wywołaniem; E2E używają trybu mock.
 3. Massive API (prawdziwe notowania) — stretch goal, nietestowane bez klucza.
 4. Next.js odmawia dwóch równoległych `next build` w `frontend/` — nie budować równolegle.
 
 ## Dziennik
+
+- **2026-11-28** — Decyzja użytkownika: zachować poprawkę SSE. team-lead nałożył zapisaną łatkę backend-engineera i zweryfikował ją: pytest 275 passed / 1 skipped, ruff czysty. Commit `947a576`. integration-tester: finalny E2E w Dockerze na `947a576` → **24 passed (30,6 s), exit 0**. Kopia łatki usunięta.
 
 - **2026-11-28** — **Zakończenie.** backend-engineer cofnął niezatwierdzoną poprawkę SSE (łatka zachowana poza repo). Selektor E2E na `position-quantity-{T}` zatwierdzony (`c5e50ee`). integration-tester: finalny E2E w Dockerze na czystym drzewie, obraz budowany od zera → **24 passed (36,8 s), exit 0**. Wszystkie kryteria ukończenia spełnione.
 
