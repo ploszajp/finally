@@ -1,0 +1,39 @@
+# Keep the build context small and free of secrets.
+.git
+.github
+.claude
+.claude-plugin
+.vscode
+.env
+.env.*
+!.env.example
+*.log
+
+# Runtime data
+db/
+
+# Python
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/.coverage
+**/htmlcov
+backend/static
+backend/tests
+
+# Node / Next.js
+**/node_modules
+frontend/.next
+frontend/out
+frontend/coverage
+
+# Not needed in the image
+planning/
+test/
+scripts/
+independent-reviewer/
+Nowy folder/
+README.md
+LICENSE

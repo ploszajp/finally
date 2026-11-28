@@ -1,4 +1,5 @@
 import json
+import threading
 
 from app.market import PriceCache, create_stream_router
 from app.market.stream import _generate_events
@@ -60,6 +61,17 @@ async def test_immediate_disconnect():
     cache = PriceCache()
     cache.update("A", 1.0)
     events = await collect(cache, FakeRequest(0))
+    assert events == ["retry: 1000\n\n"]
+
+
+async def test_stop_event_ends_stream():
+    cache = PriceCache()
+    cache.update("A", 1.0)
+    stop = threading.Event()
+    events = []
+    async for e in _generate_events(cache, FakeRequest(1000), interval=0.001, stop_event=stop):
+        events.append(e)
+        stop.set()  # e.g. server shutdown starts
     assert events == ["retry: 1000\n\n"]
 
 

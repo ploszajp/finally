@@ -1,0 +1,20 @@
+# Optional convenience wrapper: `docker compose up -d --build` / `docker compose down`.
+# `down` keeps the finally-data volume; `down -v` deletes it (wipes the portfolio).
+services:
+  app:
+    build: .
+    image: finally:latest
+    container_name: finally
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - finally-data:/app/db
+    restart: unless-stopped
+    stop_grace_period: 10s
+
+volumes:
+  finally-data:
+    name: finally-data
