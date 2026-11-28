@@ -2,34 +2,38 @@
 
 Prowadzi: team-lead. Plik aktualizowany przy każdym raporcie. Źródło prawdy kontraktów: `planning/API.md`, `planning/API_CHAT.md`, `planning/PLAN.md`.
 
-Gałąź: `AgentTeams`. Ostatni checkpoint: `cf0edac` (frontend: wszystkie widoki). Snapshot po awarii: `f60f1ea`.
+Gałąź: `AgentTeams`. **Stan: UKOŃCZONE (2026-11-28).** Końcowy commit kodu: `c5e50ee`. Snapshot po awarii: `f60f1ea`.
 
 ## Stan obszarów
 
 | Obszar | Właściciel | Stan | Ostatnia weryfikacja | Blokery |
 |---|---|---|---|---|
-| Kontrakty (API.md, API_CHAT.md, PLAN §13) | team-lead | gotowe | 2026-11-28 | — |
-| Warstwa DB (`backend/app/db/`) | backend-engineer | gotowe | 2026-11-28: testy db przechodzą | — |
-| API / serwisy / `main.py` | backend-engineer | gotowe (opcjonalnie: wyciszenie CancelledError SSE przy zamykaniu) | 2026-11-28 team-lead: pełny pytest zielony, ruff czysty | — |
+| Kontrakty (API.md, API_CHAT.md, PLAN §12/§13) | team-lead | gotowe | 2026-11-28 | — |
+| Warstwa DB (`backend/app/db/`) | backend-engineer | gotowe | 2026-11-28 team-lead: pełny pytest zielony | — |
+| API / serwisy / `main.py` | backend-engineer | gotowe | 2026-11-28 team-lead: pełny pytest zielony, ruff czysty | — |
 | LLM / czat (`backend/app/llm/`) | llm-engineer | gotowe — router, serwis, 54 testy w `tests/llm/`; test z prawdziwym kluczem OK (9,9 s, poprawny structured output) | 2026-11-28 team-lead: **217 passed, 1 skipped**, `ruff check` i `ruff format --check` czyste (72 pliki) | — |
-| Frontend (`frontend/`) | frontend-engineer | gotowe; sprawdzone ręcznie w przeglądarce z backendem (mock) | 2026-11-28 team-lead: `npx vitest run` **39/39**, `npm run lint` czysty, `npm run build` OK | — |
-| Docker / skrypty | devops-engineer | obraz z pełnym UI buduje się i działa (582 MB); poprawki w Dockerfile i skryptach zatwierdzone | 2026-11-28 (raport devops, rebuild z UI): health, UI terminala, SSE, trwałość wolumenu, `docker stop` 3 s, non-root, skrypty idempotentne; team-lead: parse-check skryptów .ps1 OK, tryb 100755 dla .sh | finalny rebuild po `/api/chat` |
-| E2E (`test/`) | integration-tester | gotowe — 24/24 w Dockerze | 2026-11-28 (raport): `docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from playwright` → **24 passed (33,7 s)**, exit 0; lokalnie 24/24, `--repeat-each=3` 57/57; team-lead: `tsc --noEmit` w test/ OK | — |
+| Frontend (`frontend/`) | frontend-engineer | gotowe; sprawdzone ręcznie w przeglądarce z backendem (mock), także szerokość tabletu | 2026-11-28 team-lead: `npx vitest run` **39/39**, `npm run lint` czysty, `npm run build` OK | — |
+| Docker / skrypty | devops-engineer | gotowe — obraz 582 MB, bez `.env` w obrazie, non-root | 2026-11-28 (raport devops): health, UI, SSE, `/api/chat` (mock), trwałość wolumenu `finally-data`, `docker stop` 2–4 s, skrypty idempotentne; team-lead: parse-check `.ps1`, tryb 100755 dla `.sh` | — |
+| E2E (`test/`) | integration-tester | gotowe — **24/24 w Dockerze na HEAD `c5e50ee`** | 2026-11-28 (raport): `build --no-cache finally-app` + `up --abort-on-container-exit --exit-code-from playwright` → **24 passed (36,8 s)**, exit 0, 0 flaky; team-lead: `tsc --noEmit` w test/ OK | — |
 
-### Wyniki weryfikacji backendu (2026-11-28, team-lead)
+### Wyniki weryfikacji (team-lead)
 
-- **Druga weryfikacja:** `uv run pytest -q`: **217 passed, 1 skipped** (401 s); `ruff check .`: All checks passed; `ruff format --check .`: 72 files already formatted. Commit `5d84ee6`.
-- Pierwsza weryfikacja (start przebiegu): `uv run pytest -q`: **16 failed, 187 passed, 1 skipped** (180 s). Wszystkie porażki to czat: `tests/integration/test_chat_flow.py`, `test_fresh_start.py::test_chat_history_starts_empty`, `test_persistence.py::test_restart_keeps_portfolio_watchlist_chat_and_history`.
-- `uv run ruff check .`: 1 błąd — `app/llm/client.py:58:16 BLE001`.
-- `uv run ruff format --check .`: OK.
+- Backend (`5d84ee6`, bez zmian do końca): `uv run pytest -q` **217 passed, 1 skipped** (401 s); `ruff check .` All checks passed; `ruff format --check .` 72 files already formatted.
+- Frontend (`41edfac`): vitest 39/39, lint czysty, build OK.
+- Na starcie przebiegu: 16 failed / 187 passed (brak routera czatu), 1 błąd ruff (BLE001).
 
-## Następne kroki
+## Znane drobne problemy / dalsze kroki
 
-1. integration-tester: finalny przebieg E2E przez `test/docker-compose.test.yml` na obrazie z HEAD (`LLM_MOCK=true`, świeży wolumen testowy).
-2. team-lead: po zielonym E2E końcowy commit, finalny STATUS i podsumowanie dla użytkownika.
-3. Opcjonalnie: backend-engineer — ciche zamykanie SSE (CancelledError w logach); integration-tester/frontend — `position-quantity-{T}` zamiast selektora po kolumnie.
+1. Przy `docker stop` w logach pojawia się traceback CancelledError z SSE; zamykanie przebiega poprawnie. Gotowa poprawka backend-engineera (zamykanie w 0,2 s bez tracebacku, 4 testy) leży poza repo jako łatka w katalogu tymczasowym sesji (`scratchpad\sse-shutdown.patch` + `test_shutdown.py`; może zostać wyczyszczony). Wprowadzenie: `git apply`, skopiować test, pełny pytest i ruff.
+2. Czat z prawdziwym LLM sprawdzony jednym wywołaniem; E2E używają trybu mock.
+3. Massive API (prawdziwe notowania) — stretch goal, nietestowane bez klucza.
+4. Next.js odmawia dwóch równoległych `next build` w `frontend/` — nie budować równolegle.
 
 ## Dziennik
+
+- **2026-11-28** — **Zakończenie.** backend-engineer cofnął niezatwierdzoną poprawkę SSE (łatka zachowana poza repo). Selektor E2E na `position-quantity-{T}` zatwierdzony (`c5e50ee`). integration-tester: finalny E2E w Dockerze na czystym drzewie, obraz budowany od zera → **24 passed (36,8 s), exit 0**. Wszystkie kryteria ukończenia spełnione.
+
+- **2026-11-28** — frontend-engineer: dodał `position-quantity-{T}` w tabeli pozycji. team-lead zweryfikował (vitest 39/39, lint, build; jednorazowa blokada `next build` po poprzednim buildzie, ponowna próba OK). Commit `41edfac`. Decyzja (main): szum CancelledError w SSE zostaje znanym drobnym problemem; backend-engineer cofa niezatwierdzoną zmianę w `stream.py`. Następnie integration-tester przełącza selektor na `position-quantity-{T}` i robi jeden finalny przebieg E2E w Dockerze.
 
 - **2026-11-28** — integration-tester: E2E w Dockerze **24/24** (exit 0, bez retry). Pierwsza próba padła na `ERR_SSL_PROTOCOL_ERROR`: Chromium wymusza HTTPS dla całej domeny `.app` (HSTS preload), więc serwis `app` przemianowano na `finally-app`. To nie był błąd produktu. devops-engineer: `.playwright-mcp/` w `.gitignore`. W toku ostatnie drobne zmiany: `backend/app/market/stream.py` (ciche zamykanie SSE) i `PositionsTable.tsx`. Po nich team-lead robi finalną weryfikację i zamrożenie.
 
