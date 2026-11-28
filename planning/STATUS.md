@@ -2,7 +2,7 @@
 
 Prowadzi: team-lead. Plik aktualizowany przy każdym raporcie. Źródło prawdy kontraktów: `planning/API.md`, `planning/API_CHAT.md`, `planning/PLAN.md`.
 
-Gałąź: `AgentTeams`. Ostatni checkpoint: `f60f1ea` (snapshot po awarii pierwszego przebiegu).
+Gałąź: `AgentTeams`. Ostatni checkpoint: `cf0edac` (frontend: wszystkie widoki). Snapshot po awarii: `f60f1ea`.
 
 ## Stan obszarów
 
@@ -13,7 +13,7 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `f60f1ea` (snapshot po awarii pierws
 | API / serwisy / `main.py` | backend-engineer | prawie gotowe | 2026-11-28: `ruff format --check` OK (65 plików) | — |
 | LLM / czat (`backend/app/llm/`) | llm-engineer | w toku — brak `router.py`, serwisu czatu, testów `tests/llm/`; 1 błąd ruff (BLE001 `app/llm/client.py:58`) | 2026-11-28: 16 testów integracyjnych czatu nie przechodzi (`/api/chat` → 405) | — |
 | Frontend (`frontend/`) | frontend-engineer | wszystkie widoki napisane (watchlist, wykres główny, P&L, heatmapa, pozycje, pasek transakcji, czat, header); brak testów vitest | 2026-11-28 team-lead: `npm run build` OK (out/index.html), `npm run lint` czysty | testy vitest i ręczna weryfikacja z backendem w toku |
-| Docker / skrypty | devops-engineer | faza 1 OK: obraz buduje się i działa (na starym scaffoldzie frontendu); poprawki w Dockerfile (cache uv jako mount) i skryptach | 2026-11-28 (raport devops): health, UI, SSE, trwałość wolumenu, `docker stop` 3 s, non-root, skrypty idempotentne; team-lead: parse-check skryptów .ps1 OK, tryb 100755 dla .sh | rebuild czeka na zielony `npm run build` (brak `@/components/Terminal`) |
+| Docker / skrypty | devops-engineer | obraz z pełnym UI buduje się i działa (582 MB); poprawki w Dockerfile i skryptach zatwierdzone | 2026-11-28 (raport devops, rebuild z UI): health, UI terminala, SSE, trwałość wolumenu, `docker stop` 3 s, non-root, skrypty idempotentne; team-lead: parse-check skryptów .ps1 OK, tryb 100755 dla .sh | finalny rebuild po `/api/chat` |
 | E2E (`test/`) | integration-tester | w toku — specyfikacje 01–06 istnieją | nie uruchomiono | czeka na frontend, `/api/chat`, obraz Docker |
 
 ### Wyniki weryfikacji backendu (2026-11-28, team-lead)
@@ -26,11 +26,13 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `f60f1ea` (snapshot po awarii pierws
 
 1. llm-engineer: `app/llm/router.py` + serwis czatu wg `API_CHAT.md`, testy w `tests/llm/`, naprawa BLE001. Cel: 0 failed w backendzie.
 2. frontend-engineer: wszystkie elementy UI z PLAN §10, testy vitest, `npm run build` / `npx vitest run` / `npm run lint` zielone.
-3. devops-engineer: zbudować obraz, sprawdzić health, UI, SSE, trwałość wolumenu (po zielonym buildzie frontendu).
+3. devops-engineer: finalny rebuild i weryfikacja po gotowym `/api/chat` i testach frontendu (obraz z UI już zweryfikowany).
 4. integration-tester: uruchomić E2E przeciw kontenerowi (`LLM_MOCK=true`).
 5. team-lead: checkpoint commit po każdym zweryfikowanym kamieniu milowym.
 
 ## Dziennik
+
+- **2026-11-28** — devops-engineer: rebuild z nowym frontendem OK. Obraz ma 582 MB (wcześniej 906 MB). W obrazie nie ma `.env`. Przez `start_windows.ps1`: health 200, `/` serwuje UI terminala, SSE OK, trwałość wolumenu `finally-data` potwierdzona (historia snapshotów przetrwała restart), stop trwa 2–3 s. Czeka na finalny rebuild po `/api/chat`.
 
 - **2026-11-28** — frontend-engineer: wszystkie widoki gotowe (Lightweight Charts v5, treemap na divach, hook SSE ze statusem połączenia). team-lead zweryfikował: build i lint zielone. Commit checkpointu. Odblokowano rebuild Dockera (devops) i E2E UI (integration-tester).
 
