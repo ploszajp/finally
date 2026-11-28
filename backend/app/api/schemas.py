@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class TradeRequest(BaseModel):
     ticker: str
-    quantity: float
+    quantity: float = Field(allow_inf_nan=False)
     side: Literal["buy", "sell"]
 
     @field_validator("side", mode="before")

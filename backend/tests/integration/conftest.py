@@ -142,17 +142,19 @@ def client(server) -> Iterator[httpx.Client]:
 def read_sse_events(base_url: str, count: int, timeout: float = 10.0) -> list[dict]:
     """Open the SSE stream, collect `count` data events, then disconnect."""
     events: list[dict] = []
-    with httpx.Client(timeout=timeout, trust_env=False) as c:
-        with c.stream("GET", f"{base_url}/api/stream/prices") as response:
-            assert response.status_code == 200
-            assert response.headers["content-type"].startswith("text/event-stream")
-            deadline = time.monotonic() + timeout
-            for line in response.iter_lines():
-                if line.startswith("data:"):
-                    events.append(json.loads(line.removeprefix("data:").strip()))
-                    if len(events) >= count:
-                        break
-                assert time.monotonic() < deadline, f"only {len(events)} SSE events"
+    with (
+        httpx.Client(timeout=timeout, trust_env=False) as c,
+        c.stream("GET", f"{base_url}/api/stream/prices") as response,
+    ):
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        deadline = time.monotonic() + timeout
+        for line in response.iter_lines():
+            if line.startswith("data:"):
+                events.append(json.loads(line.removeprefix("data:").strip()))
+                if len(events) >= count:
+                    break
+            assert time.monotonic() < deadline, f"only {len(events)} SSE events"
     return events
 
 

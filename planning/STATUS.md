@@ -32,6 +32,8 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `cf0edac` (frontend: wszystkie widok
 
 ## Dziennik
 
+- **2026-11-28** — devops-engineer: rebuild z HEAD `9df1c4b` w pełni zweryfikowany (kontener testowy). `docker build --check` bez ostrzeżeń, `.gitattributes` już wymusza LF dla .sh. W UI jest 29 `data-testid` z kontraktu. Trwałość: zakup 2 NVDA i dodanie PYPL przetrwały stop/start. `docker stop` 3,9 s przy otwartym SSE. **`/api/chat` działa już w obrazie** (mock: 200, `actions.error: null`). Strona Dockera nie ma otwartych zadań; zostaje jedynie niegroźny szum w logach (CancelledError z SSE).
+
 - **2026-11-28** — devops-engineer: rebuild z nowym frontendem OK. Obraz ma 582 MB (wcześniej 906 MB). W obrazie nie ma `.env`. Przez `start_windows.ps1`: health 200, `/` serwuje UI terminala, SSE OK, trwałość wolumenu `finally-data` potwierdzona (historia snapshotów przetrwała restart), stop trwa 2–3 s. Czeka na finalny rebuild po `/api/chat`.
 
 - **2026-11-28** — frontend-engineer: wszystkie widoki gotowe (Lightweight Charts v5, treemap na divach, hook SSE ze statusem połączenia). team-lead zweryfikował: build i lint zielone. Commit checkpointu. Odblokowano rebuild Dockera (devops) i E2E UI (integration-tester).

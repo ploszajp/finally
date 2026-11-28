@@ -9,8 +9,9 @@ from .conftest import read_sse_events
 
 
 def trade(client, ticker, quantity, side):
-    return client.post("/api/portfolio/trade",
-                       json={"ticker": ticker, "quantity": quantity, "side": side})
+    return client.post(
+        "/api/portfolio/trade", json={"ticker": ticker, "quantity": quantity, "side": side}
+    )
 
 
 def portfolio(client):
@@ -45,7 +46,8 @@ def test_buy_moves_cash_into_position(client):
     assert pos["market_value"] == pytest.approx(pos["quantity"] * pos["current_price"], abs=0.01)
     assert p["total_value"] == pytest.approx(p["cash_balance"] + p["positions_value"], abs=0.01)
     assert pos["weight_percent"] == pytest.approx(
-        pos["market_value"] / p["total_value"] * 100, abs=0.01)
+        pos["market_value"] / p["total_value"] * 100, abs=0.01
+    )
 
     # GET agrees with the trade response, and the trade recorded a snapshot.
     assert portfolio(client)["cash_balance"] == p["cash_balance"]
@@ -127,11 +129,14 @@ def test_malformed_ticker_is_400(client):
     assert trade(client, "12AB", 1, "buy").status_code == 400
 
 
-@pytest.mark.parametrize("payload", [
-    {"ticker": "AAPL", "quantity": 1, "side": "hold"},
-    {"ticker": "AAPL", "quantity": "lots", "side": "buy"},
-    {"ticker": "AAPL", "side": "buy"},
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"ticker": "AAPL", "quantity": 1, "side": "hold"},
+        {"ticker": "AAPL", "quantity": "lots", "side": "buy"},
+        {"ticker": "AAPL", "side": "buy"},
+    ],
+)
 def test_schema_violations_are_422(client, payload):
     r = client.post("/api/portfolio/trade", json=payload)
     assert r.status_code == 422
@@ -166,15 +171,20 @@ def test_selling_watched_ticker_keeps_it_tracked(client, server):
 def test_concurrent_buys_never_overspend(server):
     """Twenty parallel buys worth ~20x the cash: cash must never go negative and must equal
     the starting cash minus exactly the executed trades."""
-    price = next(i["price"] for i in httpx.get(f"{server.base_url}/api/watchlist",
-                                                trust_env=False).json()["watchlist"]
-                 if i["ticker"] == "AAPL")
+    price = next(
+        i["price"]
+        for i in httpx.get(f"{server.base_url}/api/watchlist", trust_env=False).json()["watchlist"]
+        if i["ticker"] == "AAPL"
+    )
     qty = round(10000 / price * 0.9, 4)  # each buy is ~90% of starting cash
 
     def buy(_):
-        return httpx.post(f"{server.base_url}/api/portfolio/trade",
-                          json={"ticker": "AAPL", "quantity": qty, "side": "buy"},
-                          timeout=30, trust_env=False)
+        return httpx.post(
+            f"{server.base_url}/api/portfolio/trade",
+            json={"ticker": "AAPL", "quantity": qty, "side": "buy"},
+            timeout=30,
+            trust_env=False,
+        )
 
     with ThreadPoolExecutor(max_workers=20) as pool:
         results = list(pool.map(buy, range(20)))

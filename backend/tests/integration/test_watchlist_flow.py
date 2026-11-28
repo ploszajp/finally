@@ -15,8 +15,14 @@ def test_add_normalises_prices_and_streams_ticker(client, server):
     item = r.json()
     assert item["ticker"] == "PYPL"
     assert item["price"] is not None and item["price"] > 0
-    assert set(item) >= {"price", "previous_price", "change_percent", "day_change_percent",
-                         "direction", "added_at"}
+    assert set(item) >= {
+        "price",
+        "previous_price",
+        "change_percent",
+        "day_change_percent",
+        "direction",
+        "added_at",
+    }
 
     assert tickers(client) == DEFAULT_TICKERS + ["PYPL"]
     assert client.get("/api/health").json()["tracked_tickers"] == 11
@@ -51,8 +57,10 @@ def test_remove_then_remove_again(client, server):
 
     # Not tracked any more: dropped from the stream and from the source.
     assert client.get("/api/health").json()["tracked_tickers"] == 9
-    wait_for(lambda: "NFLX" not in read_sse_events(server.base_url, count=1)[0],
-             message="NFLX still streamed after removal")
+    wait_for(
+        lambda: "NFLX" not in read_sse_events(server.base_url, count=1)[0],
+        message="NFLX still streamed after removal",
+    )
 
     r = client.delete("/api/watchlist/NFLX")
     assert r.status_code == 404

@@ -55,7 +55,7 @@ async def call_llm(messages: list[dict]) -> LLMResponse:
         except (TimeoutError, litellm.Timeout):
             logger.warning("LLM call timed out after %ss", TIMEOUT_SECONDS)
             raise LLMError(LLM_TIMEOUT) from None
-        except Exception as e:  # network, auth, rate limit, provider errors
+        except Exception as e:  # noqa: BLE001 - network, auth, rate limit, provider errors
             # Type only: provider messages can echo request details.
             logger.warning("LLM call failed: %s", type(e).__name__)
             raise LLMError(LLM_UNAVAILABLE) from None

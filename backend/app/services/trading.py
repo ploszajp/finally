@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 
 from app.db import repository as repo
 from app.market import normalize_ticker
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 SIDES = ("buy", "sell")
 QTY_DECIMALS = 4
 EPSILON = 1e-9
+# Far above anything $10k can buy; keeps totals finite and error messages readable
+# for absurd inputs (e.g. from the LLM).
+MAX_QUANTITY = 1e9
 
 
 def _money(value: float) -> str:
@@ -83,6 +87,8 @@ async def execute_trade(ticker: str, side: str, quantity: float) -> dict:
         raise TradeError("Quantity must be a number") from None
     if not quantity > 0:  # also rejects NaN
         raise TradeError("Quantity must be greater than 0")
+    if not math.isfinite(quantity) or quantity > MAX_QUANTITY:
+        raise TradeError("Quantity is too large")
 
     # Held for the whole trade so a concurrent watchlist removal cannot untrack the ticker
     # between reading the price and opening the position.
