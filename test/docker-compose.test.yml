@@ -1,0 +1,48 @@
+# E2E test stack: the FinAlly app (LLM mock, fresh in-memory DB volume) plus a
+# Playwright runner. Run from the repository root:
+#
+#   docker compose -f test/docker-compose.test.yml up --build \
+#     --abort-on-container-exit --exit-code-from playwright
+#   docker compose -f test/docker-compose.test.yml down -v
+#
+# The Playwright image tag must match @playwright/test in test/package.json.
+name: finally-test
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      LLM_MOCK: "true"
+      OPENROUTER_API_KEY: ""
+      MASSIVE_API_KEY: ""
+    # Fresh database on every run: nothing persists between `up`s.
+    # The image runs as uid 1000, so the tmpfs must be writable by it.
+    tmpfs:
+      - /app/db:uid=1000,gid=1000,mode=0755
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=2).status == 200 else 1)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.65.1-noble
+    depends_on:
+      app:
+        condition: service_healthy
+    working_dir: /e2e
+    environment:
+      BASE_URL: http://app:8000
+      CI: "true"
+    volumes:
+      - ./:/e2e
+      # Linux node_modules inside the container, separate from the host's.
+      - e2e-node-modules:/e2e/node_modules
+    ipc: host
+    command: ["bash", "-c", "npm ci --no-audit --no-fund && npx playwright test"]
+
+volumes:
+  e2e-node-modules:

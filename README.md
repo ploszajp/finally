@@ -24,12 +24,44 @@ Built entirely by coding agents as the capstone project for an agentic AI coding
 
 ## Quick Start
 
+Requires Docker (Docker Desktop on macOS/Windows).
+
 ```bash
-cp .env.example .env        # add your OPENROUTER_API_KEY
-./scripts/start_mac.sh      # Windows: .\scripts\start_windows.ps1
+cp .env.example .env              # add your OPENROUTER_API_KEY
+./scripts/start_mac.sh            # macOS/Linux
 ```
 
-Then open http://localhost:8000.
+```powershell
+Copy-Item .env.example .env       # add your OPENROUTER_API_KEY
+.\scripts\start_windows.ps1       # Windows PowerShell
+```
+
+The script builds the image on first run, starts the container and opens http://localhost:8000.
+
+| Action | macOS/Linux | Windows |
+|---|---|---|
+| Start | `./scripts/start_mac.sh` | `.\scripts\start_windows.ps1` |
+| Rebuild after code changes | `./scripts/start_mac.sh --build` | `.\scripts\start_windows.ps1 -Build` |
+| Start without opening a browser | `--no-open` | `-NoOpen` |
+| Stop (data kept) | `./scripts/stop_mac.sh` | `.\scripts\stop_windows.ps1` |
+
+If PowerShell blocks the script, run it with `powershell -ExecutionPolicy Bypass -File .\scripts\start_windows.ps1`.
+
+Your portfolio lives in the Docker volume `finally-data` and survives restarts and rebuilds. To start over: stop the app, then `docker volume rm finally-data`.
+
+### Docker Compose (alternative)
+
+```bash
+docker compose up -d --build      # start
+docker compose down               # stop, keeps the volume (down -v deletes it)
+```
+
+### Plain Docker
+
+```bash
+docker build -t finally .
+docker run -d --name finally -p 8000:8000 -v finally-data:/app/db --env-file .env finally
+```
 
 ### Environment Variables
 

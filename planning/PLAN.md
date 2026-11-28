@@ -111,7 +111,7 @@ finally/
 - **`frontend/`** is a self-contained Next.js project. It knows nothing about Python. It talks to the backend via `/api/*` endpoints and `/api/stream/*` SSE endpoints. Internal structure is up to the Frontend Engineer agent.
 - **`backend/`** is a self-contained uv project with its own `pyproject.toml`. It owns all server logic including database initialization, schema, seed data, API routes, SSE streaming, market data, and LLM integration. Internal structure is up to the Backend/Market Data agents.
 - **`backend/db/`** contains schema SQL definitions and seed logic. The backend lazily initializes the database on first request — creating tables and seeding default data if the SQLite file doesn't exist or is empty.
-- **`db/`** at the top level is the runtime volume mount point. The SQLite file (`db/finally.db`) is created here by the backend and persists across container restarts via Docker volume.
+- **`db/`** at the top level is where the SQLite file (`db/finally.db`) lives for **local (non-Docker) runs**. In Docker the database lives in the named volume `finally-data`, mounted at `/app/db` (see §11); the top-level `db/` is not mounted.
 - **`planning/`** contains project-wide documentation, including this plan. All agents reference files here as the shared contract.
 - **`test/`** contains Playwright E2E tests and supporting infrastructure (e.g., `docker-compose.test.yml`). Unit tests live within `frontend/` and `backend/` respectively, following each framework's conventions.
 - **`scripts/`** contains start/stop scripts that wrap Docker commands.
@@ -137,7 +137,8 @@ LLM_MOCK=false
 - If `MASSIVE_API_KEY` is set and non-empty → backend uses Massive REST API for market data
 - If `MASSIVE_API_KEY` is absent or empty → backend uses the built-in market simulator
 - If `LLM_MOCK=true` → backend returns deterministic mock LLM responses (for E2E tests)
-- The backend reads `.env` from the project root (mounted into the container or read via docker `--env-file`)
+- The backend reads configuration **only from process environment variables** (`os.environ`). Docker passes `.env` with `--env-file .env` (or `env_file:` in `docker-compose.yml`); `.env` is not copied into the image. For local (non-Docker) runs the backend additionally loads the project-root `.env` if it exists, never overriding variables already set (see `planning/API.md` §7)
+- Container-only variables set in the Dockerfile: `STATIC_DIR=/app/static` (frontend static export) and `DB_PATH=/app/db/finally.db` (SQLite file). Local defaults: `backend/static` (API-only if absent) and `<repo>/db/finally.db`
 
 ---
 
@@ -289,6 +290,9 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/chat` | Send a message, receive complete JSON response (message + executed actions) |
+| GET | `/api/chat/history` | Stored conversation, oldest first (restores the chat panel after reload) |
+
+Chat request/response shapes, LLM error handling and mock mode: `planning/API_CHAT.md`.
 
 ### System
 | Method | Path | Description |
@@ -315,6 +319,8 @@ When the user sends a chat message, the backend:
 6. Auto-executes any trades or watchlist changes specified in the response
 7. Stores the message and executed actions in `chat_messages`
 8. Returns the complete JSON response to the frontend (no token-by-token streaming — Cerebras inference is fast enough that a loading indicator is sufficient)
+
+The full chat contract (response shapes, per-action results, error handling, mock rules) is in `planning/API_CHAT.md`.
 
 ### Structured Output Schema
 
@@ -394,18 +400,21 @@ The frontend is a single-page application with a dense, terminal-inspired layout
 ### Multi-Stage Dockerfile
 
 ```
-Stage 1: Node 20 slim
-  - Copy frontend/
-  - npm install && npm run build (produces static export)
+Stage 1: node:22-slim (Node 22 LTS; Node 20 is EOL)
+  - Copy frontend/package*.json, npm ci (npm install if no lockfile)
+  - Copy frontend/, npm run build (static export in frontend/out)
 
-Stage 2: Python 3.12 slim
-  - Install uv
-  - Copy backend/
-  - uv sync --frozen (install Python dependencies from lockfile)
-  - Copy frontend build output into a static/ directory
-  - Expose port 8000
-  - CMD: uvicorn serving FastAPI app, with --timeout-graceful-shutdown 2
+Stage 2: python:3.12-slim
+  - Copy uv binary from ghcr.io/astral-sh/uv (pinned version)
+  - Copy backend/pyproject.toml + uv.lock, uv sync --frozen --no-dev --no-install-project (cached layer)
+  - Copy backend/, uv sync --frozen --no-dev
+  - Copy frontend/out to /app/static (STATIC_DIR=/app/static)
+  - DB_PATH=/app/db/finally.db, VOLUME /app/db, runs as non-root user `app`
+  - EXPOSE 8000, HEALTHCHECK GET /api/health
+  - CMD: uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 2
 ```
+
+`.dockerignore` keeps `.env`, `db/`, `node_modules`, `.venv`, build output and docs out of the build context, so secrets never end up in the image.
 
 FastAPI serves the static frontend files and all API routes on port 8000.
 
@@ -419,7 +428,9 @@ The SQLite database persists via a named Docker volume:
 docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
 ```
 
-The `db/` directory in the project root maps to `/app/db` in the container. The backend writes `finally.db` to this path.
+The named volume `finally-data` is mounted at `/app/db`; the backend writes `finally.db` there (`DB_PATH`). The project's top-level `db/` is **not** mounted; it is only used by local non-Docker runs. Environment variables come from `--env-file .env`; the backend reads only `os.environ`. `docker-compose.yml` is an equivalent wrapper (`docker compose up -d --build` / `docker compose down`; `down -v` would delete the volume).
+
+To reset the portfolio: stop the container, then `docker volume rm finally-data`.
 
 ### Start/Stop Scripts
 
@@ -427,13 +438,15 @@ The `db/` directory in the project root maps to `/app/db` in the container. The 
 - Builds the Docker image if not already built (or if `--build` flag passed)
 - Runs the container with the volume mount, port mapping, and `.env` file
 - Prints the URL to access the app
-- Optionally opens the browser
+- Waits for `/api/health`, then opens the browser (`--no-open` to skip)
 
 **`scripts/stop_mac.sh`** (macOS/Linux):
-- Stops and removes the running container
+- Stops (graceful `docker stop`, so cleanup runs) and removes the container
 - Does NOT remove the volume (data persists)
 
-**`scripts/start_windows.ps1`** / **`scripts/stop_windows.ps1`**: PowerShell equivalents for Windows.
+**`scripts/start_windows.ps1`** / **`scripts/stop_windows.ps1`**: PowerShell equivalents for Windows (`-Build`, `-NoOpen`).
+
+The scripts use plain `docker build` / `docker run` (container `finally`, image `finally:latest`, volume `finally-data`), so they do not require the Compose plugin.
 
 All scripts should be idempotent — safe to run multiple times.
 
@@ -479,23 +492,21 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 
 ## 13. Review: 10 najważniejszych problemów
 
-*Review dokumentacji (2026-11-24). Rozstrzygnij każdy punkt (wpisz decyzję do odpowiedniej sekcji powyżej i usuń go stąd), zanim zaczną pracę agenci, którzy od niego zależą. Z punktów blokujących start otwarte są 1, 4 i 5.*
+*Review dokumentacji (2026-11-24). Rozstrzygnij każdy punkt (wpisz decyzję do odpowiedniej sekcji powyżej i usuń go stąd), zanim zaczną pracę agenci, którzy od niego zależą. Wszystkie punkty blokujące start są rozstrzygnięte.*
 
-1. **Brak kształtów odpowiedzi API (§8).** Frontend i backend zbudują różne kontrakty, jeśli JSON nie zostanie zapisany. Trzeba podać pola dla `GET /api/portfolio` (cash, total_value, positions: ticker, quantity, avg_cost, current_price, unrealized_pnl, pnl_pct), `POST /api/portfolio/trade` (sukces i błąd), `GET /api/portfolio/history`, `GET /api/watchlist` i `POST /api/chat`. Do tego jeden format błędu (np. `{"detail": "..."}`) i stałe kody statusu (400/422 walidacja, 404 nieznany ticker, 409 duplikat na watchliście). Najlepiej w osobnym pliku `planning/API.md` z przykładami JSON.
+1. *Rozstrzygnięte — zob. planning/API.md.*
 2. *Rozstrzygnięte — zob. §6 „SSE Streaming”.*
 3. *Rozstrzygnięte — zob. §6 „Tracked Tickers”.*
-4. **Zachowanie mock LLM nie jest opisane.** Testy E2E od niego zależą („transakcja pojawia się inline”). Przykład: wiadomość zawierająca „buy” → kupno 1 akcji AAPL; „add X” → dodanie do watchlisty; wszystko inne → stała odpowiedź tekstowa. Bez tego agent testów i agent backendu się rozjadą.
-5. **Schemat i wykonanie akcji LLM (§9).** (a) W trybie strict structured outputs wszystkie pola muszą być `required`, więc `trades` i `watchlist_changes` powinny być wymaganymi tablicami (pustymi, gdy nieużywane). (b) Kolejność: najpierw zmiany watchlisty, potem transakcje. (c) Każda akcja wykonywana niezależnie (błąd jednej nie zatrzymuje reszty). (d) Odpowiedź `/api/chat` i kolumna `chat_messages.actions` zawierają wynik każdej akcji (wykonana / odrzucona z powodem), a nie tylko to, o co prosił LLM.
-6. **Obsługa błędów LLM.** Co zwraca `/api/chat` przy timeoucie, błędzie sieci, niepoprawnym JSON albo braku `OPENROUTER_API_KEY`? Czy wiadomość użytkownika jest zapisywana? Rekomendacja: aplikacja startuje bez klucza, a czat zwraca przyjazny komunikat błędu. Trzeba też ustalić okno historii wysyłanej do LLM (np. ostatnie 20 wiadomości).
-7. **Brak endpointu historii czatu.** Panel czatu pokazuje „przewijaną historię”, a wiadomości są w `chat_messages`, ale §8 nie ma `GET /api/chat/history`. Po odświeżeniu strony panel jest pusty. Dodaj endpoint albo napisz wprost, że historia nie jest przywracana.
-8. **Sprzeczności w specyfikacji.** (a) §11 używa named volume (`finally-data:/app/db`), ale twierdzi, że katalog `db/` projektu jest mapowany na `/app/db`. Wybierz jedno. (b) §5 mówi, że backend czyta `.env` z katalogu projektu, ale w kontenerze go nie ma. Rekomendacja: `--env-file .env`, backend czyta tylko `os.environ`. (c) §4 mówi „lazy init przy pierwszym żądaniu”, §7 „przy starcie (lub pierwszym żądaniu)”. Rekomendacja: raz przy starcie (FastAPI lifespan), z zapisem pierwszego snapshotu portfela, żeby wykres P&L nie był pusty. (d) §10: Recharts renderuje SVG, nie canvas, a żadna z bibliotek nie pokrywa treemapy. Rekomendacja: Lightweight Charts dla wykresów liniowych i treemapa z divów (łatwa do testowania w E2E).
+4. *Rozstrzygnięte — zob. `planning/API_CHAT.md` „Mock mode”.*
+5. *Rozstrzygnięte — zob. `planning/API_CHAT.md` „Structured output schema” i „Processing a chat message”.*
+6. *Rozstrzygnięte — zob. `planning/API_CHAT.md` „LLM failures” (HTTP 200 z `actions.error`, okno historii 20 wiadomości).*
+7. *Rozstrzygnięte — zob. `planning/API_CHAT.md` (`GET /api/chat/history`).*
+8. *Rozstrzygnięte — zob. planning/API.md §7.*
 9. *Częściowo rozstrzygnięte — dzienna zmiana: zob. §6 (`day_change_percent`).* Do zrobienia w UI: „% change” w tabeli pozycji to niezrealizowany P&L względem `avg_cost`.
-10. **Walidacja transakcji.** (Format i normalizacja tickerów rozstrzygnięte — zob. §6 „Tracked Tickers”.) Transakcja bez ceny w cache → błąd. `quantity > 0`, zaokrąglanie (gotówka do centów, ilość do 4 miejsc). Sprzedaż całej pozycji usuwa wiersz, a `avg_cost` nie zmienia się przy częściowej sprzedaży. Odczyt i zapis gotówki/pozycji w jednej transakcji SQLite, żeby równoczesny zakup ręczny i przez LLM nie przeszedł dwa razy.
+10. *Rozstrzygnięte — zob. planning/API.md (§3 „Trade execution rules”).*
 
 ### Uproszczenia
 
 - **Złożone klucze główne** `(user_id, ticker)` w `watchlist` i `positions` zamiast UUID: prostsze upserty (`INSERT ... ON CONFLICT`).
 - **Massive API jako stretch goal.** Symulator pokrywa wszystkie scenariusze demo i testów; interfejs abstrakcyjny zostaje, żeby dodać Massive później.
 - **Usunąć test E2E „SSE resilience”** albo zastąpić go testem jednostkowym wskaźnika połączenia. Restart serwera w Playwright jest kruchy, a EventSource ma wbudowany retry.
-- **Skrypty start/stop** mogą być jednolinijkowymi wrapperami na `docker compose up -d` / `down`, które działa tak samo na każdym systemie.
-- **Node 20 jest po EOL** (kwiecień 2026). W Dockerfile użyj Node 22 LTS.
