@@ -6,9 +6,12 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import AsyncIterator
+import signal
+import threading
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -50,6 +53,40 @@ async def _snapshot_loop(interval: float) -> None:
             logger.exception("Periodic portfolio snapshot failed")
 
 
+def _chain_shutdown_signals(stop: threading.Event) -> Callable[[], None]:
+    """Set `stop` as soon as uvicorn receives a shutdown signal.
+
+    Uvicorn waits for open connections (SSE streams never end on their own) before the
+    lifespan shutdown runs, then cancels them after --timeout-graceful-shutdown and logs
+    a CancelledError traceback. Wrapping its signal handlers lets the streams end first.
+    Returns a function that restores the wrapped handlers.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None  # e.g. TestClient: no signals, nothing to chain
+    installed: dict[int, tuple[Any, Any]] = {}
+    for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        previous = signal.getsignal(sig)
+        if not callable(previous):
+            continue
+
+        def handler(signum: int, frame: Any, previous: Any = previous) -> None:
+            stop.set()
+            previous(signum, frame)
+
+        signal.signal(sig, handler)
+        installed[sig] = (handler, previous)
+
+    def restore() -> None:
+        for sig, (handler, previous) in installed.items():
+            if signal.getsignal(sig) is handler:
+                signal.signal(sig, previous)
+
+    return restore
+
+
 def _include_chat_router(app: FastAPI) -> None:
     try:
         from app.llm.router import router as chat_router
@@ -68,9 +105,12 @@ def create_app(
 ) -> FastAPI:
     _load_local_env()
     cache = PriceCache()
+    stop_streams = threading.Event()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        stop_streams.clear()
+        restore_signals = _chain_shutdown_signals(stop_streams)
         db = init_db(db_path)
         source = create_market_data_source(cache)
         set_state(AppState(db=db, cache=cache, source=source))
@@ -83,6 +123,8 @@ def create_app(
             logger.info("FinAlly started (db=%s)", db.path)
             yield
         finally:
+            stop_streams.set()
+            restore_signals()
             if snapshot_task is not None:
                 snapshot_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -95,7 +137,7 @@ def create_app(
     app.include_router(health.router)
     app.include_router(portfolio.router)
     app.include_router(watchlist.router)
-    app.include_router(create_stream_router(cache))
+    app.include_router(create_stream_router(cache, stop_event=stop_streams))
     _include_chat_router(app)
 
     # Must stay last: the catch-all route would otherwise shadow API routes.
