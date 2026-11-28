@@ -12,7 +12,7 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `f60f1ea` (snapshot po awarii pierws
 | Warstwa DB (`backend/app/db/`) | backend-engineer | gotowe | 2026-11-28: testy db przechodzą | — |
 | API / serwisy / `main.py` | backend-engineer | prawie gotowe | 2026-11-28: `ruff format --check` OK (65 plików) | — |
 | LLM / czat (`backend/app/llm/`) | llm-engineer | w toku — brak `router.py`, serwisu czatu, testów `tests/llm/`; 1 błąd ruff (BLE001 `app/llm/client.py:58`) | 2026-11-28: 16 testów integracyjnych czatu nie przechodzi (`/api/chat` → 405) | — |
-| Frontend (`frontend/`) | frontend-engineer | w toku — są pierwsze komponenty (Header, Watchlist, Sparkline, TimeSeriesChart, usePriceStream, lib/*) | nie zweryfikowano | — |
+| Frontend (`frontend/`) | frontend-engineer | wszystkie widoki napisane (watchlist, wykres główny, P&L, heatmapa, pozycje, pasek transakcji, czat, header); brak testów vitest | 2026-11-28 team-lead: `npm run build` OK (out/index.html), `npm run lint` czysty | testy vitest i ręczna weryfikacja z backendem w toku |
 | Docker / skrypty | devops-engineer | faza 1 OK: obraz buduje się i działa (na starym scaffoldzie frontendu); poprawki w Dockerfile (cache uv jako mount) i skryptach | 2026-11-28 (raport devops): health, UI, SSE, trwałość wolumenu, `docker stop` 3 s, non-root, skrypty idempotentne; team-lead: parse-check skryptów .ps1 OK, tryb 100755 dla .sh | rebuild czeka na zielony `npm run build` (brak `@/components/Terminal`) |
 | E2E (`test/`) | integration-tester | w toku — specyfikacje 01–06 istnieją | nie uruchomiono | czeka na frontend, `/api/chat`, obraz Docker |
 
@@ -31,6 +31,8 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `f60f1ea` (snapshot po awarii pierws
 5. team-lead: checkpoint commit po każdym zweryfikowanym kamieniu milowym.
 
 ## Dziennik
+
+- **2026-11-28** — frontend-engineer: wszystkie widoki gotowe (Lightweight Charts v5, treemap na divach, hook SSE ze statusem połączenia). team-lead zweryfikował: build i lint zielone. Commit checkpointu. Odblokowano rebuild Dockera (devops) i E2E UI (integration-tester).
 
 - **2026-11-28** — devops-engineer, faza 1: obraz `finally:latest` zbudowany i zweryfikowany w kontenerze testowym (health, `/` → HTML, SSE ze snapshotem, zakup 3 AAPL przetrwał stop/start, `docker stop` 3 s, uid 1000, HEALTHCHECK healthy, shellcheck czysty). Poprawki: cache uv w BuildKit mount (obraz 906 MB, w tym 349 MB cache; nowego rozmiaru jeszcze nie zmierzono), `stop_windows.ps1` kończy się kodem 0, skrypty start kończą się kodem 1, jeśli health nie odpowie w 30 s, `chmod +x` dla .sh. Bloker: frontend w trakcie edycji nie buduje się (`Can't resolve '@/components/Terminal'`). Uwagi dla backendu: hałaśliwy traceback CancelledError z SSE przy zamykaniu (niekrytyczny).
 
