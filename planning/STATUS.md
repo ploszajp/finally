@@ -14,7 +14,7 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `cf0edac` (frontend: wszystkie widok
 | LLM / czat (`backend/app/llm/`) | llm-engineer | gotowe — router, serwis, 54 testy w `tests/llm/`; test z prawdziwym kluczem OK (9,9 s, poprawny structured output) | 2026-11-28 team-lead: **217 passed, 1 skipped**, `ruff check` i `ruff format --check` czyste (72 pliki) | — |
 | Frontend (`frontend/`) | frontend-engineer | gotowe; sprawdzone ręcznie w przeglądarce z backendem (mock) | 2026-11-28 team-lead: `npx vitest run` **39/39**, `npm run lint` czysty, `npm run build` OK | — |
 | Docker / skrypty | devops-engineer | obraz z pełnym UI buduje się i działa (582 MB); poprawki w Dockerfile i skryptach zatwierdzone | 2026-11-28 (raport devops, rebuild z UI): health, UI terminala, SSE, trwałość wolumenu, `docker stop` 3 s, non-root, skrypty idempotentne; team-lead: parse-check skryptów .ps1 OK, tryb 100755 dla .sh | finalny rebuild po `/api/chat` |
-| E2E (`test/`) | integration-tester | 24 testy (01–06) zielone lokalnie; trwa finalny przebieg przez `docker-compose.test.yml` | 2026-11-28 (raport): lokalnie 24/24 w 32,5 s, `--repeat-each=3` 57/57; team-lead: `tsc --noEmit` w test/ OK | — |
+| E2E (`test/`) | integration-tester | gotowe — 24/24 w Dockerze | 2026-11-28 (raport): `docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from playwright` → **24 passed (33,7 s)**, exit 0; lokalnie 24/24, `--repeat-each=3` 57/57; team-lead: `tsc --noEmit` w test/ OK | — |
 
 ### Wyniki weryfikacji backendu (2026-11-28, team-lead)
 
@@ -30,6 +30,8 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `cf0edac` (frontend: wszystkie widok
 3. Opcjonalnie: backend-engineer — ciche zamykanie SSE (CancelledError w logach); integration-tester/frontend — `position-quantity-{T}` zamiast selektora po kolumnie.
 
 ## Dziennik
+
+- **2026-11-28** — integration-tester: E2E w Dockerze **24/24** (exit 0, bez retry). Pierwsza próba padła na `ERR_SSL_PROTOCOL_ERROR`: Chromium wymusza HTTPS dla całej domeny `.app` (HSTS preload), więc serwis `app` przemianowano na `finally-app`. To nie był błąd produktu. devops-engineer: `.playwright-mcp/` w `.gitignore`. W toku ostatnie drobne zmiany: `backend/app/market/stream.py` (ciche zamykanie SSE) i `PositionsTable.tsx`. Po nich team-lead robi finalną weryfikację i zamrożenie.
 
 - **2026-11-28** — Raporty zbiorcze: llm-engineer (czat wg API_CHAT.md, 54 testy LLM, test z prawdziwym kluczem OK), backend-engineer (review wg API.md, 3 poprawki: obsługa NaN/Inf w 422, 404 dla nieznanych `/api/*` niezależnie od metody, limit ilości w serwisie; 16 nowych testów), frontend-engineer (vitest 39/39, poprawka „Object is disposed” w wykresie, usuwanie klasy flash po animacji), integration-tester (E2E 24/24 lokalnie, stabilne przy powtórzeniach). team-lead zweryfikował frontend (vitest 39/39, lint, build) i typy E2E. Commit `906ab55`. Uruchomiono finalny przebieg E2E w Dockerze.
 
