@@ -34,7 +34,9 @@ export default function PositionsTable({ positions, onSelect }: Props) {
                 className="cursor-pointer border-b border-line/50 hover:bg-raised"
               >
                 <td className="px-3 py-1 font-medium text-text">{p.ticker}</td>
-                <td className="num px-2 py-1 text-right">{formatQuantity(p.quantity)}</td>
+                <td data-testid={`position-quantity-${p.ticker}`} className="num px-2 py-1 text-right">
+                  {formatQuantity(p.quantity)}
+                </td>
                 <td className="num px-2 py-1 text-right">{formatPrice(p.avg_cost)}</td>
                 <td className="num px-2 py-1 text-right">{formatPrice(p.current_price)}</td>
                 <td className={`num px-2 py-1 text-right ${signClass(p.unrealized_pnl)}`}>

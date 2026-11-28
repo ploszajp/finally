@@ -40,6 +40,7 @@ describe("PositionsTable", () => {
     expect(aapl).toHaveTextContent("110.00");
     expect(aapl).toHaveTextContent("+$100.00");
     expect(aapl).toHaveTextContent("+10.00%");
+    expect(screen.getByTestId("position-quantity-AAPL")).toHaveTextContent(/^10$/);
     expect(screen.getByTestId("position-row-TSLA")).toHaveTextContent("-20.00%");
   });
 
