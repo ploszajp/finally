@@ -54,6 +54,7 @@ export const TT = {
   watchlistChange: (t: string) => `watchlist-change-${t}`,
   watchlistRemove: (t: string) => `watchlist-remove-${t}`,
   positionRow: (t: string) => `position-row-${t}`,
+  positionQuantity: (t: string) => `position-quantity-${t}`,
   heatmapCell: (t: string) => `heatmap-cell-${t}`,
 };
 
@@ -75,9 +76,9 @@ export const watchlistRow = (page: Page, ticker: string) => page.getByTestId(TT.
 export const positionRow = (page: Page, ticker: string) => page.getByTestId(TT.positionRow(ticker));
 export const heatmapCell = (page: Page, ticker: string) => page.getByTestId(TT.heatmapCell(ticker));
 
-/** Quantity shown in a positions-table row (column 2: ticker, quantity, avg cost, ...). */
+/** Quantity shown in a positions-table row. */
 export async function positionQuantity(page: Page, ticker: string): Promise<number> {
-  return parseNumber(await positionRow(page, ticker).locator('td').nth(1).textContent());
+  return parseNumber(await page.getByTestId(TT.positionQuantity(ticker)).textContent());
 }
 
 /** Expect a money-like element to show `expected` (to the cent). */
