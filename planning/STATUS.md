@@ -10,15 +10,16 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `cf0edac` (frontend: wszystkie widok
 |---|---|---|---|---|
 | Kontrakty (API.md, API_CHAT.md, PLAN §13) | team-lead | gotowe | 2026-11-28 | — |
 | Warstwa DB (`backend/app/db/`) | backend-engineer | gotowe | 2026-11-28: testy db przechodzą | — |
-| API / serwisy / `main.py` | backend-engineer | prawie gotowe | 2026-11-28: `ruff format --check` OK (65 plików) | — |
-| LLM / czat (`backend/app/llm/`) | llm-engineer | w toku — brak `router.py`, serwisu czatu, testów `tests/llm/`; 1 błąd ruff (BLE001 `app/llm/client.py:58`) | 2026-11-28: 16 testów integracyjnych czatu nie przechodzi (`/api/chat` → 405) | — |
+| API / serwisy / `main.py` | backend-engineer | gotowe (opcjonalnie: wyciszenie CancelledError SSE przy zamykaniu) | 2026-11-28 team-lead: pełny pytest zielony, ruff czysty | — |
+| LLM / czat (`backend/app/llm/`) | llm-engineer | gotowe wg testów — router, serwis, testy `tests/llm/`; czeka na raport llm-engineera (ścieżka z prawdziwym LLM) | 2026-11-28 team-lead: **217 passed, 1 skipped**, `ruff check` i `ruff format --check` czyste (72 pliki) | — |
 | Frontend (`frontend/`) | frontend-engineer | wszystkie widoki napisane (watchlist, wykres główny, P&L, heatmapa, pozycje, pasek transakcji, czat, header); brak testów vitest | 2026-11-28 team-lead: `npm run build` OK (out/index.html), `npm run lint` czysty | testy vitest i ręczna weryfikacja z backendem w toku |
 | Docker / skrypty | devops-engineer | obraz z pełnym UI buduje się i działa (582 MB); poprawki w Dockerfile i skryptach zatwierdzone | 2026-11-28 (raport devops, rebuild z UI): health, UI terminala, SSE, trwałość wolumenu, `docker stop` 3 s, non-root, skrypty idempotentne; team-lead: parse-check skryptów .ps1 OK, tryb 100755 dla .sh | finalny rebuild po `/api/chat` |
 | E2E (`test/`) | integration-tester | w toku — specyfikacje 01–06 istnieją | nie uruchomiono | czeka na frontend, `/api/chat`, obraz Docker |
 
 ### Wyniki weryfikacji backendu (2026-11-28, team-lead)
 
-- `uv run pytest -q`: **16 failed, 187 passed, 1 skipped** (180 s). Wszystkie porażki to czat: `tests/integration/test_chat_flow.py`, `test_fresh_start.py::test_chat_history_starts_empty`, `test_persistence.py::test_restart_keeps_portfolio_watchlist_chat_and_history`.
+- **Druga weryfikacja:** `uv run pytest -q`: **217 passed, 1 skipped** (401 s); `ruff check .`: All checks passed; `ruff format --check .`: 72 files already formatted. Commit `5d84ee6`.
+- Pierwsza weryfikacja (start przebiegu): `uv run pytest -q`: **16 failed, 187 passed, 1 skipped** (180 s). Wszystkie porażki to czat: `tests/integration/test_chat_flow.py`, `test_fresh_start.py::test_chat_history_starts_empty`, `test_persistence.py::test_restart_keeps_portfolio_watchlist_chat_and_history`.
 - `uv run ruff check .`: 1 błąd — `app/llm/client.py:58:16 BLE001`.
 - `uv run ruff format --check .`: OK.
 
@@ -31,6 +32,8 @@ Gałąź: `AgentTeams`. Ostatni checkpoint: `cf0edac` (frontend: wszystkie widok
 5. team-lead: checkpoint commit po każdym zweryfikowanym kamieniu milowym.
 
 ## Dziennik
+
+- **2026-11-28** — team-lead: backend w całości zielony (217 passed, 1 skipped, ruff czysty). Commit `5d84ee6` (router i serwis czatu, testy LLM, testy brzegowe API). Kolejny etap: testy vitest frontendu i E2E.
 
 - **2026-11-28** — devops-engineer: rebuild z HEAD `9df1c4b` w pełni zweryfikowany (kontener testowy). `docker build --check` bez ostrzeżeń, `.gitattributes` już wymusza LF dla .sh. W UI jest 29 `data-testid` z kontraktu. Trwałość: zakup 2 NVDA i dodanie PYPL przetrwały stop/start. `docker stop` 3,9 s przy otwartym SSE. **`/api/chat` działa już w obrazie** (mock: 200, `actions.error: null`). Strona Dockera nie ma otwartych zadań; zostaje jedynie niegroźny szum w logach (CancelledError z SSE).
 
